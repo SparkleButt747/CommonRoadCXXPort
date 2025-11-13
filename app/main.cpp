@@ -1,10 +1,11 @@
+// app/main.cpp
 #include <cmath>
 #include <cstdio>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
-// SDL2 headers (try both styles)
+// SDL2
 #if defined(__has_include)
 #  if __has_include(<SDL2/SDL.h>)
 #    include <SDL2/SDL.h>
@@ -20,18 +21,22 @@
 #include "imgui_impl_sdl2.h"
 #include "imgui_impl_sdlrenderer2.h"
 
-// Vehicle models & parameters
+// Vehicle params and models
 #include "vehicle_parameters.hpp"
+
+#include "vehicle/parameters_vehicle1.hpp"
+#include "vehicle/parameters_vehicle2.hpp"
+#include "vehicle/parameters_vehicle3.hpp"
+#include "vehicle/parameters_vehicle4.hpp"
+
 #include "vehiclemodels/vehicle_dynamics_ks.hpp"
 #include "vehiclemodels/vehicle_dynamics_st.hpp"
 #include "vehiclemodels/vehicle_dynamics_std.hpp"
 #include "utils/vehicle_dynamics_ks_cog.hpp"
 
-// Parameter presets (you put these under parameters/vehicle/)
-#include "vehicle/parameters_vehicle1.hpp"
-#include "vehicle/parameters_vehicle2.hpp"
-#include "vehicle/parameters_vehicle3.hpp"
-#include "vehicle/parameters_vehicle4.hpp"
+#include "vehiclemodels/init_ks.hpp"
+#include "vehiclemodels/init_st.hpp"
+#include "vehiclemodels/init_std.hpp"
 
 namespace vm = vehiclemodels;
 
@@ -46,48 +51,16 @@ enum class ModelType {
     STD     = 3
 };
 
-static const char* modelTypeName(ModelType t)
-{
-    switch (t) {
-        case ModelType::KS_REAR: return "Kinematic ST (rear axle ref)";
-        case ModelType::KS_COG:  return "Kinematic ST (CoG ref)";
-        case ModelType::ST:      return "Single-Track Dynamic (ST)";
-        case ModelType::STD:     return "Single-Track Drift (STD)";
-        default:                 return "Unknown";
-    }
-}
-
 struct Simulation {
-    ModelType                    model;
-    int                          vehicle_id;
-    vm::VehicleParameters        params;
-    std::vector<double>          x;     // state
-    std::vector<double>          u;     // input [steer_rate, accel]
-    float                       dt;    // integration step [s]
+    ModelType             model;
+    int                   vehicle_id;
+    vm::VehicleParameters params;
+    std::vector<double>   x;     // state
+    std::vector<double>   u;     // input [steer_rate, accel]
+    float                 dt;    // integration step [s]
 };
 
-// init state shapes per model
-static std::vector<double> make_initial_state(ModelType m)
-{
-    switch (m) {
-        case ModelType::KS_REAR:
-            // x = [x, y, steer, v, yaw]
-            return std::vector<double>(5, 0.0);
-        case ModelType::KS_COG:
-            // x = [x, y, steer, v, yaw]
-            return std::vector<double>(5, 0.0);
-        case ModelType::ST:
-            // x = [x, y, steer, v, yaw, yaw_rate, beta]
-            return std::vector<double>(7, 0.0);
-        case ModelType::STD:
-            // x = [x, y, steer, v, yaw, yaw_rate, beta, omega_f, omega_r]
-            return std::vector<double>(9, 0.0);
-        default:
-            return {};
-    }
-}
-
-// load vehicle params by id
+// load parameters by id
 static vm::VehicleParameters load_vehicle_params(int id, const std::string& root = {})
 {
     switch (id) {
@@ -108,7 +81,6 @@ static std::vector<double> compute_rhs(const Simulation& sim)
             return vm::vehicle_dynamics_ks(sim.x, sim.u, sim.params);
 
         case ModelType::KS_COG: {
-            // utils::vehicle_dynamics_ks_cog uses std::array
             std::array<double, 5> x_arr{};
             std::array<double, 2> u_arr{};
             for (int i = 0; i < 5; ++i) x_arr[i] = sim.x[i];
@@ -125,40 +97,38 @@ static std::vector<double> compute_rhs(const Simulation& sim)
 
         case ModelType::STD:
             return vm::vehicle_dynamics_std(sim.x, sim.u, sim.params);
-
-        default:
-            return {};
     }
+    return {};
 }
 
 // --------------------------------------------------------------
-// Telemetry helpers
+// Telemetry
 // --------------------------------------------------------------
 
 struct Telemetry {
-    double speed;        // scalar speed [m/s]
-    double v_long;       // body longitudinal velocity [m/s]
-    double v_lat;        // body lateral velocity [m/s]
-    double v_global_x;   // world-frame x-velocity [m/s]
-    double v_global_y;   // world-frame y-velocity [m/s]
-    double a_long;       // approximate longitudinal accel [m/s^2]
-    double a_lat;        // approximate lateral accel [m/s^2]
+    double speed;
+    double v_long;
+    double v_lat;
+    double v_global_x;
+    double v_global_y;
+    double a_long;
+    double a_lat;
 };
 
 static Telemetry compute_telemetry(const Simulation& sim)
 {
     Telemetry t{};
-    const double L = sim.params.a + sim.params.b;
-    const double delta = sim.x.size() > 2 ? sim.x[2] : 0.0;
 
-    double v = 0.0;
+    const double L     = sim.params.a + sim.params.b;
+    const double delta = (sim.x.size() > 2) ? sim.x[2] : 0.0;
+
+    double v    = 0.0;
     double beta = 0.0;
-    double yaw = 0.0;
+    double yaw  = 0.0;
 
     switch (sim.model) {
         case ModelType::KS_REAR:
         case ModelType::KS_COG:
-            // v = x[3], yaw = x[4], beta ~ 0
             if (sim.x.size() >= 5) {
                 v   = sim.x[3];
                 yaw = sim.x[4];
@@ -167,7 +137,6 @@ static Telemetry compute_telemetry(const Simulation& sim)
             break;
 
         case ModelType::ST:
-            // x: [x, y, steer, v, yaw, yaw_rate, beta]
             if (sim.x.size() >= 7) {
                 v    = sim.x[3];
                 yaw  = sim.x[4];
@@ -176,7 +145,6 @@ static Telemetry compute_telemetry(const Simulation& sim)
             break;
 
         case ModelType::STD:
-            // x: [x, y, steer, v, yaw, yaw_rate, beta, omega_f, omega_r]
             if (sim.x.size() >= 9) {
                 v    = sim.x[3];
                 yaw  = sim.x[4];
@@ -193,8 +161,7 @@ static Telemetry compute_telemetry(const Simulation& sim)
     t.v_global_x = v * std::cos(heading);
     t.v_global_y = v * std::sin(heading);
 
-    // crude approximation: longitudinal accel ≈ input accel, lateral accel ≈ v^2 * tan(delta) / L
-    t.a_long = sim.u.size() > 1 ? sim.u[1] : 0.0;
+    t.a_long = (sim.u.size() > 1) ? sim.u[1] : 0.0;
     if (L > 0.0) {
         t.a_lat = v * v * std::tan(delta) / L;
     } else {
@@ -205,7 +172,7 @@ static Telemetry compute_telemetry(const Simulation& sim)
 }
 
 // --------------------------------------------------------------
-// Drawing helpers (car as triangle)
+// Drawing helpers
 // --------------------------------------------------------------
 
 struct Vec2 {
@@ -220,23 +187,20 @@ static void draw_car(SDL_Renderer* renderer,
 {
     if (sim.x.size() < 5) return;
 
-    // position and yaw
     const double x_world = sim.x[0];
     const double y_world = sim.x[1];
     const double yaw     = sim.x[4];
 
-    // car dimensions
     double L = sim.params.l;
     double W = sim.params.w;
     if (L <= 0.0) L = sim.params.a + sim.params.b;
-    if (L <= 0.0) L = 4.0; // fallback
+    if (L <= 0.0) L = 4.0;
     if (W <= 0.0) W = sim.params.T_f;
-    if (W <= 0.0) W = 1.8; // fallback
+    if (W <= 0.0) W = 1.8;
 
     const double halfL = 0.5 * L;
     const double halfW = 0.5 * W;
 
-    // triangle in body frame: front tip, rear-left, rear-right
     Vec2 body_front{ halfL, 0.0 };
     Vec2 body_rl  { -halfL, -halfW };
     Vec2 body_rr  { -halfL,  halfW };
@@ -245,10 +209,10 @@ static void draw_car(SDL_Renderer* renderer,
     const double s = std::sin(yaw);
 
     auto body_to_world = [&](const Vec2& v) -> Vec2 {
-        Vec2 r;
-        r.x = x_world + v.x * c - v.y * s;
-        r.y = y_world + v.x * s + v.y * c;
-        return r;
+        return {
+            x_world + v.x * c - v.y * s,
+            y_world + v.x * s + v.y * c
+        };
     };
 
     Vec2 w_front = body_to_world(body_front);
@@ -258,7 +222,6 @@ static void draw_car(SDL_Renderer* renderer,
     auto world_to_screen = [&](const Vec2& v) -> SDL_Point {
         SDL_Point p;
         p.x = static_cast<int>(window_w / 2 + v.x * pixels_per_meter);
-        // y up in world, down in screen:
         p.y = static_cast<int>(window_h / 2 - v.y * pixels_per_meter);
         return p;
     };
@@ -267,14 +230,13 @@ static void draw_car(SDL_Renderer* renderer,
     SDL_Point p_rl    = world_to_screen(w_rl);
     SDL_Point p_rr    = world_to_screen(w_rr);
 
-    // draw triangle outline
     SDL_RenderDrawLine(renderer, p_front.x, p_front.y, p_rl.x, p_rl.y);
     SDL_RenderDrawLine(renderer, p_rl.x,    p_rl.y,    p_rr.x, p_rr.y);
     SDL_RenderDrawLine(renderer, p_rr.x,    p_rr.y,    p_front.x, p_front.y);
 }
 
 // --------------------------------------------------------------
-// Simulation init / reset
+// Simulation init using init_*
 // --------------------------------------------------------------
 
 static void reset_simulation(Simulation& sim,
@@ -285,8 +247,31 @@ static void reset_simulation(Simulation& sim,
     sim.model      = model;
     sim.vehicle_id = vehicle_id;
     sim.params     = load_vehicle_params(vehicle_id, param_root);
-    sim.x          = make_initial_state(model);
     sim.u.assign(2, 0.0);
+
+    // core init state: [sx, sy, delta, v, psi, dotPsi, beta]
+    std::vector<double> core{
+        0.0,  // sx
+        0.0,  // sy
+        0.0,  // delta
+        0.0,  // v
+        0.0,  // psi
+        0.0,  // dotPsi
+        0.0   // beta
+    };
+
+    switch (model) {
+        case ModelType::KS_REAR:
+        case ModelType::KS_COG:
+            sim.x = vm::init_ks(core);          // length 5
+            break;
+        case ModelType::ST:
+            sim.x = vm::init_st(core);          // length 7
+            break;
+        case ModelType::STD:
+            sim.x = vm::init_std(core, sim.params); // length 9
+            break;
+    }
 }
 
 // --------------------------------------------------------------
@@ -295,7 +280,6 @@ static void reset_simulation(Simulation& sim,
 
 int main(int, char**)
 {
-    // SDL init
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_GAMECONTROLLER) != 0) {
         std::fprintf(stderr, "Error: SDL_Init() failed: %s\n", SDL_GetError());
         return 1;
@@ -317,8 +301,7 @@ int main(int, char**)
     }
 
     SDL_Renderer* renderer = SDL_CreateRenderer(
-        window,
-        -1,
+        window, -1,
         SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC
     );
     if (!renderer) {
@@ -339,13 +322,11 @@ int main(int, char**)
 
     // Simulation setup
     Simulation sim{};
-    sim.dt = 0.01;  // 10 ms default time step
+    sim.dt = 0.01f;
 
     ModelType currentModel = ModelType::ST;
-    int currentVehicleIdx  = 0; // 0..3 -> vehicle ID 1..4
+    int currentVehicleIdx  = 0; // 0..3 -> IDs 1..4
     const int vehicle_ids[4] = {1, 2, 3, 4};
-
-    // param root; empty -> use default compiled path in setup_vehicle_parameters
     std::string param_root;
 
     reset_simulation(sim, currentModel, vehicle_ids[currentVehicleIdx], param_root);
@@ -355,7 +336,6 @@ int main(int, char**)
     double sim_time = 0.0;
 
     while (running) {
-        // --- Event handling ---
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             ImGui_ImplSDL2_ProcessEvent(&event);
@@ -370,50 +350,42 @@ int main(int, char**)
                 running = false;
         }
 
-        // --- Keyboard state / controls ---
         const Uint8* keys = SDL_GetKeyboardState(nullptr);
 
-        // simple discrete input: W/Up = accel, S/Down = brake
         double throttle_cmd = 0.0;
         if (keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_UP])    throttle_cmd += 1.0;
         if (keys[SDL_SCANCODE_S] || keys[SDL_SCANCODE_DOWN])  throttle_cmd -= 1.0;
 
-        // A/Left = steer left, D/Right = steer right
         double steer_rate_cmd = 0.0;
         if (keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_LEFT])  steer_rate_cmd += 1.0;
         if (keys[SDL_SCANCODE_D] || keys[SDL_SCANCODE_RIGHT]) steer_rate_cmd -= 1.0;
 
-        // scales (tune to taste)
-        const double MAX_ACCEL      = 4.0;   // [m/s^2]
-        const double MAX_STEER_RATE = 0.8;   // [rad/s]
+        const double MAX_ACCEL      = 4.0;
+        const double MAX_STEER_RATE = 0.8;
 
         sim.u[1] = throttle_cmd * MAX_ACCEL;
         sim.u[0] = steer_rate_cmd * MAX_STEER_RATE;
 
-        // --- Integrate dynamics (fixed step Euler) ---
-        // Optionally use real-time dt; currently we just use sim.dt
-        std::vector<double> f = compute_rhs(sim);
-        const std::size_t n = sim.x.size();
-        if (f.size() == n) {
-            for (std::size_t i = 0; i < n; ++i) {
+        // integrate one step
+        auto f = compute_rhs(sim);
+        if (f.size() == sim.x.size()) {
+            for (std::size_t i = 0; i < sim.x.size(); ++i) {
                 sim.x[i] += f[i] * sim.dt;
             }
             sim_time += sim.dt;
         }
 
-        // --- ImGui frame ---
+        // ImGui frame
         ImGui_ImplSDLRenderer2_NewFrame();
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
 
-        // Control / stats window
         {
             ImGui::Begin("Simulation Control");
 
             ImGui::Text("Time: %.2f s", sim_time);
             ImGui::Separator();
 
-            // Model selection
             int model_idx = static_cast<int>(currentModel);
             const char* model_items[] = {
                 "KS rear (vehicle_dynamics_ks)",
@@ -421,13 +393,11 @@ int main(int, char**)
                 "ST (vehicle_dynamics_st)",
                 "STD (vehicle_dynamics_std)"
             };
-            if (ImGui::Combo("Model", &model_idx,
-                             model_items, IM_ARRAYSIZE(model_items))) {
+            if (ImGui::Combo("Model", &model_idx, model_items, IM_ARRAYSIZE(model_items))) {
                 currentModel = static_cast<ModelType>(model_idx);
                 reset_simulation(sim, currentModel, vehicle_ids[currentVehicleIdx], param_root);
             }
 
-            // Vehicle selection
             const char* vehicle_items[] = {
                 "Vehicle 1 (Ford Escort)",
                 "Vehicle 2 (BMW 320i)",
@@ -449,8 +419,8 @@ int main(int, char**)
             ImGui::Separator();
             ImGui::Text("State:");
             if (sim.x.size() >= 5) {
-                ImGui::Text("x:   %8.3f m",  sim.x[0]);
-                ImGui::Text("y:   %8.3f m",  sim.x[1]);
+                ImGui::Text("x:   %8.3f m",   sim.x[0]);
+                ImGui::Text("y:   %8.3f m",   sim.x[1]);
                 ImGui::Text("psi: %8.3f rad", sim.x[4]);
                 ImGui::Text("v:   %8.3f m/s", sim.x[3]);
             } else {
@@ -460,11 +430,11 @@ int main(int, char**)
             Telemetry tel = compute_telemetry(sim);
             ImGui::Separator();
             ImGui::Text("Telemetry:");
-            ImGui::Text("Speed:     %8.3f m/s", tel.speed);
-            ImGui::Text("v_long:    %8.3f m/s", tel.v_long);
-            ImGui::Text("v_lat:     %8.3f m/s", tel.v_lat);
-            ImGui::Text("v_global.x %8.3f m/s", tel.v_global_x);
-            ImGui::Text("v_global.y %8.3f m/s", tel.v_global_y);
+            ImGui::Text("Speed:     %8.3f m/s",  tel.speed);
+            ImGui::Text("v_long:    %8.3f m/s",  tel.v_long);
+            ImGui::Text("v_lat:     %8.3f m/s",  tel.v_lat);
+            ImGui::Text("v_global.x %8.3f m/s",  tel.v_global_x);
+            ImGui::Text("v_global.y %8.3f m/s",  tel.v_global_y);
             ImGui::Text("a_long:    %8.3f m/s^2", tel.a_long);
             ImGui::Text("a_lat:     %8.3f m/s^2", tel.a_lat);
 
@@ -473,43 +443,35 @@ int main(int, char**)
 
         ImGui::Render();
 
-        // --- Rendering ---
         int win_w, win_h;
         SDL_GetWindowSize(window, &win_w, &win_h);
 
         SDL_SetRenderDrawColor(renderer, 20, 20, 25, 255);
         SDL_RenderClear(renderer);
 
-        // draw world origin axes
         SDL_SetRenderDrawColor(renderer, 60, 60, 80, 255);
         {
             const int cx = win_w / 2;
             const int cy = win_h / 2;
-            SDL_RenderDrawLine(renderer, 0, cy, win_w, cy); // x axis
-            SDL_RenderDrawLine(renderer, cx, 0, cx, win_h); // y axis
+            SDL_RenderDrawLine(renderer, 0,  cy, win_w, cy);
+            SDL_RenderDrawLine(renderer, cx, 0, cx, win_h);
         }
 
-        // draw car
         SDL_SetRenderDrawColor(renderer, 200, 200, 50, 255);
         const double pixels_per_meter = 10.0;
         draw_car(renderer, sim, win_w, win_h, pixels_per_meter);
 
-        // ImGui render on top
         ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData(), renderer);
-
         SDL_RenderPresent(renderer);
 
-        // measure frame time (if needed later)
         Uint64 curr_counter = SDL_GetPerformanceCounter();
-        Uint64 freq = SDL_GetPerformanceFrequency();
-        double frame_dt = static_cast<double>(curr_counter - prev_counter) / static_cast<double>(freq);
+        Uint64 freq         = SDL_GetPerformanceFrequency();
+        double frame_dt     = static_cast<double>(curr_counter - prev_counter) /
+                              static_cast<double>(freq);
         prev_counter = curr_counter;
-
-        // optional: could adapt sim.dt toward frame_dt; currently we don't
         (void)frame_dt;
     }
 
-    // Shutdown
     ImGui_ImplSDLRenderer2_Shutdown();
     ImGui_ImplSDL2_Shutdown();
     ImGui::DestroyContext();

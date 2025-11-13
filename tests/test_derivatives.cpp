@@ -1,5 +1,5 @@
+// tests/test_derivatives.cpp
 #include <cmath>
-#include <cstdio>
 #include <cstdlib>
 #include <iostream>
 #include <iomanip>
@@ -63,7 +63,6 @@ static void check_vec(const std::vector<double>& got,
 
 static void test_ks(const vm::VehicleParameters& p, const std::vector<double>& u)
 {
-    // state values
     std::vector<double> x_ks{
         3.9579422297936526,
         0.0391650102771405,
@@ -72,7 +71,6 @@ static void test_ks(const vm::VehicleParameters& p, const std::vector<double>& u
         0.0294717351052816
     };
 
-    // ground truth
     std::vector<double> f_ks_gt{
         16.3475935934250209,
         0.4819314886013121,
@@ -82,13 +80,11 @@ static void test_ks(const vm::VehicleParameters& p, const std::vector<double>& u
     };
 
     auto f_ks = vm::vehicle_dynamics_ks(x_ks, u, p);
-    // Python used places=14 -> ~1e-14. Be strict but give a hair of slack.
     check_vec(f_ks, f_ks_gt, 1e-13, "vehicle_dynamics_ks");
 }
 
 static void test_kst(const std::vector<double>& u)
 {
-    // state values
     std::vector<double> x_kst{
         3.9579422297936526,
         0.0391650102771405,
@@ -98,7 +94,6 @@ static void test_kst(const std::vector<double>& u)
         0.0294717351052816
     };
 
-    // ground truth
     std::vector<double> f_kst_gt{
         16.3475935934250209,
         0.4819314886013121,
@@ -108,14 +103,13 @@ static void test_kst(const std::vector<double>& u)
         -0.23152742969444276
     };
 
-    auto p4 = vm::parameters_vehicle4();
+    auto p4   = vm::parameters_vehicle4();
     auto f_kst = vm::vehicle_dynamics_kst(x_kst, u, p4);
     check_vec(f_kst, f_kst_gt, 1e-13, "vehicle_dynamics_kst");
 }
 
 static void test_st(const vm::VehicleParameters& p, const std::vector<double>& u)
 {
-    // state values
     std::vector<double> x_st{
         2.0233348142065677,
         0.0041907137716636,
@@ -126,7 +120,6 @@ static void test_st(const vm::VehicleParameters& p, const std::vector<double>& u
         0.0033012170610298
     };
 
-    // ground truth
     std::vector<double> f_st_gt{
         15.7213512030862397,
         0.0925527979719355,
@@ -143,7 +136,6 @@ static void test_st(const vm::VehicleParameters& p, const std::vector<double>& u
 
 static void test_std(const vm::VehicleParameters& p, const std::vector<double>& u)
 {
-    // state values
     std::vector<double> x_std{
         2.0233348142065677,
         0.0041907137716636,
@@ -156,7 +148,6 @@ static void test_std(const vm::VehicleParameters& p, const std::vector<double>& 
         56.7917911784219598
     };
 
-    // ground truth
     std::vector<double> f_std_gt{
         15.72135120308624,
         0.09255279797193551,
@@ -175,7 +166,6 @@ static void test_std(const vm::VehicleParameters& p, const std::vector<double>& 
 
 static void test_mb(const vm::VehicleParameters& p, const std::vector<double>& u)
 {
-    // state values
     std::vector<double> x_mb{
         10.8808433066274794,
         0.5371850187869442,
@@ -208,7 +198,6 @@ static void test_mb(const vm::VehicleParameters& p, const std::vector<double>& u
         -0.0881514621614376
     };
 
-    // ground truth
     std::vector<double> f_mb_gt{
         17.8820162482414098,
         2.6300428035858809,
@@ -242,32 +231,22 @@ static void test_mb(const vm::VehicleParameters& p, const std::vector<double>& u
     };
 
     auto f_mb = vm::vehicle_dynamics_mb(x_mb, u, p);
-
-    // Python used default assertAlmostEqual (places=7).
-    // That corresponds roughly to ~1e-7 absolute tolerance.
     check_vec(f_mb, f_mb_gt, 1e-7, "vehicle_dynamics_mb");
 }
-
-// -----------------------------------------------------------------------------
-// Main
-// -----------------------------------------------------------------------------
 
 int main()
 {
     try {
-        // load parameters (vehicle 2 is used in all but kst)
         auto p2 = vm::parameters_vehicle2();
         auto p4 = vm::parameters_vehicle4();
 
-        // input
-        const double g = 9.81;
+        const double g       = 9.81;
         const double v_delta = 0.15;
-        const double acc = 0.63 * g;
-
+        const double acc     = 0.63 * g;
         std::vector<double> u{ v_delta, acc };
 
         test_ks(p2, u);
-        test_kst(u);         // uses vehicle 4 internally
+        test_kst(u);
         test_st(p2, u);
         test_std(p2, u);
         test_mb(p2, u);

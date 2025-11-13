@@ -60,9 +60,9 @@ target_link_libraries(imgui
 # ------------------------------------------------------------
 
 # Source roots
-set(COMMONROAD_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
+set(COMMONROAD_SRC_DIR     ${CMAKE_CURRENT_SOURCE_DIR}/src)
 set(COMMONROAD_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
-set(COMMONROAD_PARAM_DIR ${CMAKE_CURRENT_SOURCE_DIR}/parameters)
+set(COMMONROAD_PARAM_DIR   ${CMAKE_CURRENT_SOURCE_DIR}/parameters)
 
 add_library(commonroad STATIC
     # utils
@@ -84,14 +84,20 @@ add_library(commonroad STATIC
     ${COMMONROAD_SRC_DIR}/vehiclemodels/vehicle_dynamics_st.cpp
     ${COMMONROAD_SRC_DIR}/vehiclemodels/vehicle_dynamics_std.cpp
 
+    # init functions (ports of Python init_*)
+    ${COMMONROAD_SRC_DIR}/vehiclemodels/init_ks.cpp
+    ${COMMONROAD_SRC_DIR}/vehiclemodels/init_st.cpp
+    ${COMMONROAD_SRC_DIR}/vehiclemodels/init_mb.cpp
+    ${COMMONROAD_SRC_DIR}/vehiclemodels/init_std.cpp
+
     # parameter loader
     ${COMMONROAD_PARAM_DIR}/vehicle_parameters.cpp
 )
 
 target_include_directories(commonroad
     PUBLIC
-        ${COMMONROAD_INCLUDE_DIR}        # include/utils, include/vehiclemodels
-        ${COMMONROAD_PARAM_DIR}          # vehicle_parameters.hpp, vehicle/parameters_vehicle*.hpp
+        ${COMMONROAD_INCLUDE_DIR}  # include/utils, include/vehiclemodels, include/vehicle
+        ${COMMONROAD_PARAM_DIR}    # vehicle_parameters.hpp, vehicle/parameters_vehicle*.hpp
 )
 
 # Define default root for parameter YAMLs as an absolute path
@@ -122,10 +128,8 @@ target_link_libraries(commonroad_app
         SDL2::SDL2main
 )
 
-# On macOS, make sure frameworks are handled correctly
 if (APPLE)
-    # Some SDL2 builds on macOS rely on frameworks instead of libs;
-    # if needed you can add:
+    # If your SDL2 package is framework-based and complains, you can uncomment:
     # target_link_libraries(commonroad_app PRIVATE "-framework Cocoa" "-framework IOKit" "-framework CoreVideo")
 endif()
 
@@ -133,7 +137,7 @@ endif()
 # Tests
 # ------------------------------------------------------------
 
-# Default OFF; you can enable with: cmake -DBUILD_COMMONROAD_TESTS=ON ..
+# Default OFF; enable with: cmake -DBUILD_COMMONROAD_TESTS=ON ..
 option(BUILD_COMMONROAD_TESTS "Build CommonRoad test executables" OFF)
 
 if(BUILD_COMMONROAD_TESTS)
@@ -145,15 +149,11 @@ if(BUILD_COMMONROAD_TESTS)
             commonroad
     )
 
-    # we'll add test_zeroInitialVelocity once init_ks/init_st/init_mb are ported
-    # add_executable(test_zeroInitialVelocity
-    #     tests/test_zeroInitialVelocity.cpp
-    # )
-    # target_link_libraries(test_zeroInitialVelocity
-    #     PRIVATE
-    #         commonroad
-    # )
+    add_executable(test_zeroInitialVelocity
+        tests/test_zeroInitialVelocity.cpp
+    )
+    target_link_libraries(test_zeroInitialVelocity
+        PRIVATE
+            commonroad
+    )
 endif()
-
-
-
