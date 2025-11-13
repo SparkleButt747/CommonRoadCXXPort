@@ -298,9 +298,9 @@ def accelerating():
 
 # run simulations *****************
 if __name__ == '__main__':
-    # cornering_left(0.15, 0)
-    # oversteer_understeer_MB()
-    # oversteer_understeer_STD()
+    cornering_left(0.15, 2)
+    oversteer_understeer_MB()
+    oversteer_understeer_STD()
     oversteer_understeer_ST()
-    # braking()
-    # accelerating()
+    braking()
+    accelerating()
