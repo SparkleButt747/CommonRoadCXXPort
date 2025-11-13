@@ -12,6 +12,7 @@ parameter set in the CONFIG dictionary below and launch the script with
 
 from __future__ import annotations
 
+import logging
 import math
 import pathlib
 import sys
@@ -20,6 +21,7 @@ from typing import Callable, Dict, List, Sequence, Tuple
 
 import pygame
 import numpy as np
+from omegaconf import OmegaConf
 
 # Ensure the vehiclemodels package is importable when the script is executed
 # from arbitrary working directories.
@@ -33,6 +35,16 @@ from vehiclemodels.parameters_vehicle1 import parameters_vehicle1
 from vehiclemodels.parameters_vehicle2 import parameters_vehicle2
 from vehiclemodels.parameters_vehicle3 import parameters_vehicle3
 from vehiclemodels.parameters_vehicle4 import parameters_vehicle4
+from vehiclemodels.sim.actuators.aero import AeroConfig
+from vehiclemodels.sim.actuators.brake import BrakeConfig
+from vehiclemodels.sim.actuators.powertrain import PowertrainConfig
+from vehiclemodels.sim.actuators.rolling_resistance import RollingResistanceConfig
+from vehiclemodels.sim.controllers.final_accel_controller import (
+    ControllerOutput,
+    DriverIntent,
+    FinalAccelController,
+    FinalAccelControllerConfig,
+)
 
 # Vehicle dynamics and state initializers
 from vehiclemodels.init_ks import init_ks
@@ -148,13 +160,55 @@ CONFIG = {
     "model": "st",  # one of: "ks", "st", "std", "mb"
     "parameter_set": "vehicle2",  # one of: vehicle1..vehicle4
     "time_step": 0.01,  # integration step size in seconds
-    "max_accel": 4.0,  # [m/s^2] peak longitudinal acceleration when pressing UP
-    "max_brake": 8.0,  # [m/s^2] peak braking deceleration when pressing DOWN/SPACE
+    "max_accel": 4.0,  # [m/s^2] upper bound for longitudinal acceleration
+    "max_brake": 8.0,  # [m/s^2] peak braking deceleration (positive magnitude)
     "max_steer_rate": math.radians(45.0),  # [rad/s] steering angle rate
     "history_length": 2000,  # number of past poses to keep for drawing the path
     "window_size": (960, 720),
     "meters_per_pixel": 0.5,  # scale factor for rendering (smaller -> zoomed out)
 }
+
+CONFIG_ROOT = PYTHON_ROOT / "vehiclemodels" / "config"
+
+
+def _load_component_config(component: str, parameter_set: str) -> dict:
+    base = CONFIG_ROOT / component
+    path = base / f"{parameter_set}.yaml"
+    if not path.exists():
+        path = base / "default.yaml"
+    if not path.exists():
+        raise FileNotFoundError(f"No config for component '{component}' and parameter set '{parameter_set}'")
+    return OmegaConf.to_object(OmegaConf.load(path))
+
+
+def _build_accel_controller(params: object) -> FinalAccelController:
+    parameter_set = CONFIG["parameter_set"]
+    powertrain_cfg = PowertrainConfig(**_load_component_config("powertrain", parameter_set))
+    aero_cfg = AeroConfig(**_load_component_config("aero", parameter_set))
+    rolling_cfg = RollingResistanceConfig(**_load_component_config("rolling_resistance", parameter_set))
+    brake_cfg = BrakeConfig(**_load_component_config("brakes", parameter_set))
+
+    if not getattr(params, "m", None):
+        raise ValueError("Vehicle parameters must define mass 'm'")
+    if not getattr(params, "R_w", None):
+        raise ValueError("Vehicle parameters must define wheel radius 'R_w'")
+
+    controller_cfg = FinalAccelControllerConfig(
+        tau_throttle=0.25,
+        tau_brake=0.15,
+        accel_min=-CONFIG["max_brake"],
+        accel_max=CONFIG["max_accel"],
+    )
+
+    return FinalAccelController(
+        vehicle_mass=params.m,
+        wheel_radius=params.R_w,
+        powertrain_cfg=powertrain_cfg,
+        aero_cfg=aero_cfg,
+        rolling_cfg=rolling_cfg,
+        brake_cfg=brake_cfg,
+        controller_cfg=controller_cfg,
+    )
 
 # Initial state shared across models: [sx, sy, delta, vel, psi, yaw_rate, slip]
 BASE_INITIAL_STATE = [0.0, 0.0, 0.0, 5.0, 0.0, 0.0, 0.0]
@@ -207,27 +261,33 @@ class VehicleSimulator:
         return self.spec.speed_fn(self.state.tolist())
 
 
-def _handle_input() -> Tuple[float, float]:
+def _handle_input() -> Tuple[float, DriverIntent]:
     keys = pygame.key.get_pressed()
-    accel = 0.0
     steer = 0.0
+    throttle = 0.0
+    brake = 0.0
 
     if keys[pygame.K_UP]:
-        accel += CONFIG["max_accel"]
+        throttle = 1.0
     if keys[pygame.K_DOWN]:
-        accel -= CONFIG["max_brake"]
+        brake = max(brake, 0.5)
     if keys[pygame.K_SPACE]:
-        accel = -CONFIG["max_brake"]
+        brake = 1.0
 
     if keys[pygame.K_LEFT]:
         steer -= CONFIG["max_steer_rate"]
     if keys[pygame.K_RIGHT]:
         steer += CONFIG["max_steer_rate"]
 
-    return steer, accel
+    return steer, DriverIntent(throttle=throttle, brake=brake)
 
 
-def _draw_vehicle(screen: pygame.Surface, simulator: VehicleSimulator, font: pygame.font.Font) -> None:
+def _draw_vehicle(
+    screen: pygame.Surface,
+    simulator: VehicleSimulator,
+    font: pygame.font.Font,
+    ctrl_output: "ControllerOutput | None",
+) -> None:
     width, height = screen.get_size()
     cx, cy = width // 2, height // 2
     scale = 1.0 / CONFIG["meters_per_pixel"]
@@ -271,9 +331,21 @@ def _draw_vehicle(screen: pygame.Surface, simulator: VehicleSimulator, font: pyg
         f"Model: {CONFIG['model']} ({MODEL_SPECS[CONFIG['model']].name})",
         f"Parameters: {CONFIG['parameter_set']}",
         f"Speed: {simulator.speed:5.2f} m/s",
-        "Controls: arrows steer/accelerate, SPACE brake hard, R reset",
-        "ESC to quit",
     ]
+    if ctrl_output is not None:
+        text_lines.extend(
+            [
+                f"Throttle: {ctrl_output.throttle:4.2f}",
+                f"Brake: {ctrl_output.brake:4.2f}",
+                f"Accel: {ctrl_output.acceleration:5.2f} m/s^2",
+            ]
+        )
+    text_lines.extend(
+        [
+            "Controls: arrows steer/throttle, SPACE brake hard, R reset",
+            "ESC to quit",
+        ]
+    )
     for i, line in enumerate(text_lines):
         surface = font.render(line, True, (220, 220, 220))
         screen.blit(surface, (10, 10 + 18 * i))
@@ -301,9 +373,11 @@ def main() -> None:
     font = pygame.font.Font(None, 24)
 
     simulator = VehicleSimulator(spec, params, dt=CONFIG["time_step"])
+    accel_controller = _build_accel_controller(params)
     fps = max(1, int(round(1.0 / CONFIG["time_step"])))
 
     running = True
+    controller_output: ControllerOutput | None = None
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -312,10 +386,12 @@ def main() -> None:
                 running = False
             elif event.type == pygame.KEYDOWN and event.key == pygame.K_r:
                 simulator.reset()
+                controller_output = None
 
-        steer, accel = _handle_input()
-        simulator.step(steer, accel)
-        _draw_vehicle(screen, simulator, font)
+        steer, intent = _handle_input()
+        controller_output = accel_controller.step(intent, simulator.speed, CONFIG["time_step"])
+        simulator.step(steer, controller_output.acceleration)
+        _draw_vehicle(screen, simulator, font, controller_output)
 
         pygame.display.flip()
         clock.tick(fps)
@@ -325,3 +401,6 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+logging.basicConfig(level=logging.INFO)
+LOGGER = logging.getLogger(__name__)
+
