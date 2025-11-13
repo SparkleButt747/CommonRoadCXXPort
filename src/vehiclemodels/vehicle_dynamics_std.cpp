@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <stdexcept>
 #include <vector>
 
 #include "utils/steering_constraints.hpp"
