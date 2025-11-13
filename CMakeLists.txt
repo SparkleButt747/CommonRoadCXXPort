@@ -32,28 +32,30 @@ find_package(yaml-cpp REQUIRED)
 
 set(IMGUI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui)
 
-add_library(imgui STATIC
-    ${IMGUI_DIR}/imgui.cpp
-    ${IMGUI_DIR}/imgui_draw.cpp
-    ${IMGUI_DIR}/imgui_tables.cpp
-    ${IMGUI_DIR}/imgui_widgets.cpp
+if (EXISTS "${IMGUI_DIR}/imgui.cpp")
+    add_library(imgui STATIC
+        ${IMGUI_DIR}/imgui.cpp
+        ${IMGUI_DIR}/imgui_draw.cpp
+        ${IMGUI_DIR}/imgui_tables.cpp
+        ${IMGUI_DIR}/imgui_widgets.cpp
 
-    # backends
-    ${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-    ${IMGUI_DIR}/backends/imgui_impl_sdlrenderer2.cpp
-)
+        # backends
+        ${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
+        ${IMGUI_DIR}/backends/imgui_impl_sdlrenderer2.cpp
+    )
 
-target_include_directories(imgui
-    PUBLIC
-        ${IMGUI_DIR}
-        ${IMGUI_DIR}/backends
-)
+    target_include_directories(imgui
+        PUBLIC
+            ${IMGUI_DIR}
+            ${IMGUI_DIR}/backends
+    )
 
-# ImGui backend depends on SDL2 headers
-target_link_libraries(imgui
-    PUBLIC
-        SDL2::SDL2
-)
+    # ImGui backend depends on SDL2 headers
+    target_link_libraries(imgui
+        PUBLIC
+            SDL2::SDL2
+    )
+endif()
 
 # ------------------------------------------------------------
 # CommonRoad core library
@@ -116,21 +118,25 @@ target_link_libraries(commonroad
 # App: SDL2 + ImGui viewer / keyboard controller
 # ------------------------------------------------------------
 
-add_executable(commonroad_app
-    app/main.cpp
-)
+if (TARGET imgui)
+    add_executable(commonroad_app
+        app/main.cpp
+    )
 
-target_link_libraries(commonroad_app
-    PRIVATE
-        commonroad
-        imgui
-        SDL2::SDL2
-        SDL2::SDL2main
-)
+    target_link_libraries(commonroad_app
+        PRIVATE
+            commonroad
+            imgui
+            SDL2::SDL2
+            SDL2::SDL2main
+    )
 
-if (APPLE)
-    # If your SDL2 package is framework-based and complains, you can uncomment:
-    # target_link_libraries(commonroad_app PRIVATE "-framework Cocoa" "-framework IOKit" "-framework CoreVideo")
+    if (APPLE)
+        # If your SDL2 package is framework-based and complains, you can uncomment:
+        # target_link_libraries(commonroad_app PRIVATE "-framework Cocoa" "-framework IOKit" "-framework CoreVideo")
+    endif()
+else()
+    message(STATUS "ImGui sources not present; skipping commonroad_app build")
 endif()
 
 # ------------------------------------------------------------
@@ -153,6 +159,14 @@ if(BUILD_COMMONROAD_TESTS)
         tests/test_zeroInitialVelocity.cpp
     )
     target_link_libraries(test_zeroInitialVelocity
+        PRIVATE
+            commonroad
+    )
+
+    add_executable(test_vehicle
+        tests/test_vehicle.cpp
+    )
+    target_link_libraries(test_vehicle
         PRIVATE
             commonroad
     )
