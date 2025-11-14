@@ -17,6 +17,16 @@ class PowertrainConfig:
     initial_soc: float
     battery_capacity_kwh: float
 
+    def __post_init__(self) -> None:
+        min_soc = float(self.min_soc)
+        initial_soc = float(self.initial_soc)
+        max_soc = float(self.max_soc)
+
+        if not (0.0 <= min_soc <= initial_soc <= max_soc <= 1.0):
+            raise ValueError(
+                "State of charge bounds must satisfy 0 ≤ min_soc ≤ initial_soc ≤ max_soc ≤ 1."
+            )
+
 
 class Powertrain:
     """Maps pedal demand and vehicle speed to wheel torque."""
