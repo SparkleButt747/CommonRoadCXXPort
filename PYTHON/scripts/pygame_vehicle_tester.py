@@ -266,6 +266,11 @@ class VehicleSimulator:
     def speed(self) -> float:
         return self.spec.speed_fn(self.state.tolist())
 
+    @property
+    def steering_angle(self) -> float:
+        # All supported vehicle models expose the front wheel steering angle in state[2].
+        return float(self.state[2])
+
 
 def _handle_input() -> Tuple[int, DriverIntent]:
     keys = pygame.key.get_pressed()
@@ -293,10 +298,12 @@ def _draw_vehicle(
     simulator: VehicleSimulator,
     font: pygame.font.Font,
     ctrl_output: "ControllerOutput | None",
-    steer_angle: float,
-    steer_rate: float,
+    commanded_angle: float,
+    commanded_rate: float,
     desired_angle: float,
     applied_accel: float,
+    actual_angle: float,
+    actual_rate: float,
 ) -> None:
     width, height = screen.get_size()
     cx, cy = width // 2, height // 2
@@ -341,8 +348,10 @@ def _draw_vehicle(
         f"Model: {CONFIG['model']} ({MODEL_SPECS[CONFIG['model']].name})",
         f"Parameters: {CONFIG['parameter_set']}",
         f"Speed: {simulator.speed:5.2f} m/s",
-        f"Steer angle: {math.degrees(steer_angle):5.2f} deg",
-        f"Steer rate: {math.degrees(steer_rate):5.2f} deg/s",
+        f"Steer angle (vehicle): {math.degrees(actual_angle):5.2f} deg",
+        f"Steer angle (cmd est): {math.degrees(commanded_angle):5.2f} deg",
+        f"Steer rate cmd: {math.degrees(commanded_rate):5.2f} deg/s",
+        f"Steer rate actual: {math.degrees(actual_rate):5.2f} deg/s",
         f"Desired angle: {math.degrees(desired_angle):5.2f} deg",
         f"Applied accel: {applied_accel:5.2f} m/s^2",
     ]
@@ -403,6 +412,7 @@ def main() -> None:
     running = True
     controller_output: ControllerOutput | None = None
     last_desired_angle = 0.0
+    measured_angle = simulator.steering_angle
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -415,24 +425,30 @@ def main() -> None:
                 wheel.reset()
                 steer_controller.reset()
                 last_desired_angle = 0.0
+                measured_angle = simulator.steering_angle
 
         steer_nudge, intent = _handle_input()
         last_desired_angle = wheel.update(steer_nudge, CONFIG["time_step"])
-        steer_angle, steer_rate = steer_controller.step(
-            last_desired_angle, CONFIG["time_step"]
+        commanded_angle, steer_rate = steer_controller.step(
+            last_desired_angle, measured_angle, CONFIG["time_step"]
         )
         controller_output = accel_controller.step(intent, simulator.speed, CONFIG["time_step"])
         simulator.step(steer_rate, controller_output.acceleration)
+        actual_angle = simulator.steering_angle
+        actual_rate = (actual_angle - measured_angle) / CONFIG["time_step"]
+        measured_angle = actual_angle
         applied_accel = controller_output.acceleration if controller_output else 0.0
         _draw_vehicle(
             screen,
             simulator,
             font,
             controller_output,
-            steer_angle,
+            commanded_angle,
             steer_rate,
             last_desired_angle,
             applied_accel,
+            actual_angle,
+            actual_rate,
         )
 
         pygame.display.flip()

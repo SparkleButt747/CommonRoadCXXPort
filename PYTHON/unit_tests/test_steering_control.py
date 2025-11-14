@@ -61,10 +61,12 @@ def test_wheel_rate_limit_enforced(wheel_config: SteeringWheelConfig) -> None:
 def test_final_controller_respects_angle_limits(actuator_config: FinalSteerControllerConfig) -> None:
     controller = FinalSteerController(actuator_config)
     dt = 0.02
-    angle = controller.angle
+    measured = controller.angle
+    angle = measured
     rate = 0.0
     for _ in range(200):
-        angle, rate = controller.step(1.2, dt)
+        angle, rate = controller.step(1.2, measured, dt)
+        measured = angle
     assert angle <= actuator_config.max_angle + 1e-6
     assert angle >= actuator_config.min_angle - 1e-6
     assert math.isfinite(rate)
@@ -74,9 +76,20 @@ def test_final_controller_smooths_step_command(actuator_config: FinalSteerContro
     controller = FinalSteerController(actuator_config)
     dt = 0.01
     desired = actuator_config.max_angle * 0.5
-    angle, rate = controller.step(desired, dt)
+    measured = controller.angle
+    angle, rate = controller.step(desired, measured, dt)
     assert angle < desired
     assert math.isfinite(rate)
     for _ in range(200):
-        angle, _ = controller.step(desired, dt)
+        measured = angle
+        angle, _ = controller.step(desired, measured, dt)
     assert angle == pytest.approx(desired, rel=1e-2)
+
+
+def test_final_controller_counters_residual_angle(actuator_config: FinalSteerControllerConfig) -> None:
+    controller = FinalSteerController(actuator_config)
+    dt = 0.05
+    measured = 0.1
+    angle, rate = controller.step(0.0, measured, dt)
+    assert rate < 0.0  # should steer back towards zero
+    assert angle < measured

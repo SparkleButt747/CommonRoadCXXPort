@@ -126,12 +126,13 @@ class FinalSteerController:
         self._angle = clamped
         self._filtered_command = clamped
 
-    def step(self, desired_angle: float, dt: float) -> Tuple[float, float]:
+    def step(self, desired_angle: float, measured_angle: float, dt: float) -> Tuple[float, float]:
         if dt <= 0.0:
             raise ValueError("dt must be positive")
 
         cfg = self._config
         desired = self._clamp(desired_angle)
+        measured = self._clamp(measured_angle)
 
         # Low-pass filter on the operator command to avoid abrupt jumps.
         if cfg.smoothing_time_constant > 0.0:
@@ -141,16 +142,21 @@ class FinalSteerController:
             self._filtered_command = desired
 
         # First-order actuator dynamics with a hard rate limit.
-        error = self._filtered_command - self._angle
+        error = self._filtered_command - measured
         tau = cfg.actuator_time_constant
         rate = error / tau
         rate = max(-cfg.max_rate, min(cfg.max_rate, rate))
 
-        new_angle = self._angle + rate * dt
+        # Respect physical steering stops even if the plant is already near a limit.
+        max_step = (cfg.max_angle - measured) / dt
+        min_step = (cfg.min_angle - measured) / dt
+        rate = max(min_step, min(max_step, rate))
+
+        new_angle = measured + rate * dt
         new_angle = self._clamp(new_angle)
 
         if dt > 0.0:
-            rate = (new_angle - self._angle) / dt
+            rate = (new_angle - measured) / dt
         self._angle = new_angle
         return self._angle, rate
 
