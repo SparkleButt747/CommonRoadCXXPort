@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import pathlib
 import sys
+import textwrap
 
 import pytest
+from omegaconf import OmegaConf
 
 PYTHON_ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(PYTHON_ROOT) not in sys.path:
@@ -27,9 +29,11 @@ def _load_cfg(component: str) -> dict:
     path = CONFIG_ROOT / component / "vehicle2.yaml"
     if not path.exists():
         raise FileNotFoundError(path)
-    import omegaconf
-
-    return omegaconf.OmegaConf.to_object(omegaconf.OmegaConf.load(path))
+    data = OmegaConf.to_object(OmegaConf.load(path))
+    if component == "powertrain":
+        # Ensure invalid SOC bounds are detected when loading the YAML file.
+        PowertrainConfig(**data)
+    return data
 
 
 def _build_controller(
@@ -121,3 +125,25 @@ def test_reset_restores_integrators_and_soc() -> None:
     assert controller.throttle == pytest.approx(0.0)
     assert controller.brake == pytest.approx(0.0)
     assert controller.powertrain.soc == pytest.approx(initial_soc)
+
+
+def test_powertrain_config_yaml_soc_bounds(tmp_path: pathlib.Path) -> None:
+    bad_cfg = textwrap.dedent(
+        """
+        max_drive_torque: 320.0
+        max_regen_torque: 120.0
+        max_power: 130000.0
+        drive_efficiency: 0.92
+        regen_efficiency: 0.65
+        min_soc: 0.6
+        max_soc: 0.9
+        initial_soc: 0.5
+        battery_capacity_kwh: 18.0
+        """
+    )
+    cfg_path = tmp_path / "powertrain.yaml"
+    cfg_path.write_text(bad_cfg)
+
+    with pytest.raises(ValueError):
+        data = OmegaConf.to_object(OmegaConf.load(cfg_path))
+        PowertrainConfig(**data)

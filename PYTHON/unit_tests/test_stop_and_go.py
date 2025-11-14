@@ -37,7 +37,11 @@ def _load_component(component: str) -> dict:
         path = CONFIG_ROOT / component / "default.yaml"
     if not path.exists():
         raise FileNotFoundError(path)
-    return OmegaConf.to_object(OmegaConf.load(path))
+    data = OmegaConf.to_object(OmegaConf.load(path))
+    if component == "powertrain":
+        # Validate that the YAML file respects SOC bounds so tests fail fast.
+        PowertrainConfig(**data)
+    return data
 
 
 def _load_low_speed_cfg() -> LowSpeedSafetyConfig:
