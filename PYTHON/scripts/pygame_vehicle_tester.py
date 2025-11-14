@@ -294,7 +294,9 @@ def _draw_vehicle(
     font: pygame.font.Font,
     ctrl_output: "ControllerOutput | None",
     steer_angle: float,
+    steer_rate: float,
     desired_angle: float,
+    applied_accel: float,
 ) -> None:
     width, height = screen.get_size()
     cx, cy = width // 2, height // 2
@@ -340,14 +342,15 @@ def _draw_vehicle(
         f"Parameters: {CONFIG['parameter_set']}",
         f"Speed: {simulator.speed:5.2f} m/s",
         f"Steer angle: {math.degrees(steer_angle):5.2f} deg",
+        f"Steer rate: {math.degrees(steer_rate):5.2f} deg/s",
         f"Desired angle: {math.degrees(desired_angle):5.2f} deg",
+        f"Applied accel: {applied_accel:5.2f} m/s^2",
     ]
     if ctrl_output is not None:
         text_lines.extend(
             [
                 f"Throttle: {ctrl_output.throttle:4.2f}",
                 f"Brake: {ctrl_output.brake:4.2f}",
-                f"Accel: {ctrl_output.acceleration:5.2f} m/s^2",
             ]
         )
     text_lines.extend(
@@ -420,13 +423,16 @@ def main() -> None:
         )
         controller_output = accel_controller.step(intent, simulator.speed, CONFIG["time_step"])
         simulator.step(steer_rate, controller_output.acceleration)
+        applied_accel = controller_output.acceleration if controller_output else 0.0
         _draw_vehicle(
             screen,
             simulator,
             font,
             controller_output,
             steer_angle,
+            steer_rate,
             last_desired_angle,
+            applied_accel,
         )
 
         pygame.display.flip()
