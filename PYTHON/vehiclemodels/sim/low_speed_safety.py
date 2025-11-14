@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import MutableSequence, Optional
+from typing import MutableSequence, Optional, Sequence
 
 
 @dataclass(frozen=True)
@@ -38,13 +38,21 @@ class LowSpeedSafety:
         config: LowSpeedSafetyConfig,
         *,
         longitudinal_index: Optional[int],
+        lateral_index: Optional[int] = None,
         yaw_rate_index: Optional[int],
         slip_index: Optional[int],
+        wheel_speed_indices: Optional[Sequence[int]] = None,
     ) -> None:
         self.config = config
         self._longitudinal_index = longitudinal_index
+        self._lateral_index = lateral_index
         self._yaw_rate_index = yaw_rate_index
         self._slip_index = slip_index
+        self._wheel_speed_indices: tuple[int, ...] = (
+            tuple(int(idx) for idx in wheel_speed_indices)
+            if wheel_speed_indices
+            else ()
+        )
         self._engaged = False
 
     @property
@@ -82,6 +90,15 @@ class LowSpeedSafety:
                 limit = cfg.yaw_rate_limit
                 state[idx] = max(-limit, min(limit, float(state[idx])))
 
+        if self._lateral_index is not None:
+            idx = self._lateral_index
+            value = float(state[idx])
+            if self._engaged:
+                limit = cfg.stop_speed_epsilon
+                state[idx] = max(-limit, min(limit, value))
+            elif abs(value) <= cfg.stop_speed_epsilon:
+                state[idx] = 0.0
+
         if self._slip_index is not None:
             idx = self._slip_index
             if self._engaged:
@@ -89,6 +106,14 @@ class LowSpeedSafety:
             else:
                 limit = cfg.slip_angle_limit
                 state[idx] = max(-limit, min(limit, float(state[idx])))
+
+        if self._wheel_speed_indices:
+            for idx in self._wheel_speed_indices:
+                value = float(state[idx])
+                if value <= 0.0:
+                    state[idx] = 0.0
+                elif self._engaged and value <= cfg.stop_speed_epsilon:
+                    state[idx] = 0.0
 
 
 __all__ = ["LowSpeedSafetyConfig", "LowSpeedSafety"]

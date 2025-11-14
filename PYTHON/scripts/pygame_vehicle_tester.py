@@ -80,8 +80,10 @@ class ModelSpec:
     yaw_fn: Callable[[Sequence[float]], float]
     speed_fn: Callable[[Sequence[float]], float]
     longitudinal_index: Optional[int]
+    lateral_index: Optional[int]
     yaw_rate_index: Optional[int]
     slip_index: Optional[int]
+    wheel_speed_indices: Optional[Tuple[int, ...]]
 
 
 # Model-specific helper lambdas -------------------------------------------------
@@ -134,8 +136,10 @@ MODEL_SPECS: Dict[str, ModelSpec] = {
         yaw_fn=_yaw_idx(4),
         speed_fn=_speed_single_track,
         longitudinal_index=3,
+        lateral_index=None,
         yaw_rate_index=None,
         slip_index=None,
+        wheel_speed_indices=None,
     ),
     "st": ModelSpec(
         name="Dynamic Single Track",
@@ -145,8 +149,10 @@ MODEL_SPECS: Dict[str, ModelSpec] = {
         yaw_fn=_yaw_idx(4),
         speed_fn=_speed_single_track,
         longitudinal_index=3,
+        lateral_index=None,
         yaw_rate_index=5,
         slip_index=6,
+        wheel_speed_indices=None,
     ),
     "std": ModelSpec(
         name="Single Track Drift",
@@ -156,8 +162,10 @@ MODEL_SPECS: Dict[str, ModelSpec] = {
         yaw_fn=_yaw_idx(4),
         speed_fn=_speed_single_track,
         longitudinal_index=3,
+        lateral_index=None,
         yaw_rate_index=5,
         slip_index=6,
+        wheel_speed_indices=(7, 8),
     ),
     "mb": ModelSpec(
         name="Multi Body",
@@ -167,8 +175,10 @@ MODEL_SPECS: Dict[str, ModelSpec] = {
         yaw_fn=_yaw_idx(4),
         speed_fn=_speed_multi_body,
         longitudinal_index=3,
+        lateral_index=10,
         yaw_rate_index=5,
         slip_index=None,
+        wheel_speed_indices=(23, 24, 25, 26),
     ),
 }
 
@@ -215,8 +225,10 @@ def _build_low_speed_safety(spec: ModelSpec) -> tuple[LowSpeedSafety, LowSpeedSa
     safety = LowSpeedSafety(
         cfg,
         longitudinal_index=spec.longitudinal_index,
+        lateral_index=spec.lateral_index,
         yaw_rate_index=spec.yaw_rate_index,
         slip_index=spec.slip_index,
+        wheel_speed_indices=spec.wheel_speed_indices,
     )
     return safety, cfg
 

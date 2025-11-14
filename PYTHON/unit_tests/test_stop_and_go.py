@@ -1,6 +1,7 @@
+import math
 import pathlib
 import sys
-from typing import Iterable, Tuple
+from typing import Iterable, List, Sequence, Tuple
 
 from omegaconf import OmegaConf
 
@@ -9,6 +10,8 @@ if str(PYTHON_ROOT) not in sys.path:
     sys.path.insert(0, str(PYTHON_ROOT))
 
 from vehiclemodels.init_st import init_st
+from vehiclemodels.init_std import init_std
+from vehiclemodels.init_mb import init_mb
 from vehiclemodels.parameters_vehicle2 import parameters_vehicle2
 from vehiclemodels.sim import LowSpeedSafety, LowSpeedSafetyConfig, ModelInterface, VehicleSimulator
 from vehiclemodels.sim.actuators.aero import AeroConfig
@@ -21,6 +24,8 @@ from vehiclemodels.sim.controllers.final_accel_controller import (
     FinalAccelControllerConfig,
 )
 from vehiclemodels.vehicle_dynamics_st import vehicle_dynamics_st
+from vehiclemodels.vehicle_dynamics_std import vehicle_dynamics_std
+from vehiclemodels.vehicle_dynamics_mb import vehicle_dynamics_mb
 
 
 CONFIG_ROOT = PYTHON_ROOT / "vehiclemodels" / "config"
@@ -38,6 +43,30 @@ def _load_component(component: str) -> dict:
 def _load_low_speed_cfg() -> LowSpeedSafetyConfig:
     data = _load_component("low_speed_safety")
     return LowSpeedSafetyConfig(**data)
+
+
+def _speed_single_track(state: Sequence[float]) -> float:
+    return float(state[3])
+
+
+def _speed_multi_body(state: Sequence[float]) -> float:
+    return math.hypot(float(state[3]), float(state[10]))
+
+
+def _run_longitudinal_phases(
+    simulator: VehicleSimulator,
+    dt: float,
+    phases: Iterable[Tuple[float, float]],
+) -> Tuple[List[List[float]], List[float]]:
+    states: List[List[float]] = []
+    speeds: List[float] = []
+    for duration, accel in phases:
+        steps = int(duration / dt)
+        for _ in range(steps):
+            state = simulator.step((0.0, accel))
+            states.append(list(state))
+            speeds.append(simulator.speed())
+    return states, speeds
 
 
 def _build_controller(stop_speed_epsilon: float) -> FinalAccelController:
@@ -81,7 +110,7 @@ def test_stop_and_go_remains_stable() -> None:
     model = ModelInterface(
         init_fn=lambda state, _params: init_st(list(state)),
         dynamics_fn=vehicle_dynamics_st,
-        speed_fn=lambda state: float(state[3]),
+        speed_fn=_speed_single_track,
     )
     dt = 0.01
     simulator = VehicleSimulator(model, params, dt=dt, safety=safety)
@@ -118,3 +147,86 @@ def test_stop_and_go_remains_stable() -> None:
 
     assert max(abs(val) for val in yaw_rates) <= cfg.yaw_rate_limit + 1e-3
     assert max(abs(val) for val in slips) <= cfg.slip_angle_limit + 1e-3
+
+
+def test_std_resumes_motion_after_full_stop() -> None:
+    params = parameters_vehicle2()
+    cfg = _load_low_speed_cfg()
+    safety = LowSpeedSafety(
+        cfg,
+        longitudinal_index=3,
+        yaw_rate_index=5,
+        slip_index=6,
+        wheel_speed_indices=(7, 8),
+    )
+
+    model = ModelInterface(
+        init_fn=lambda state, vehicle_params: init_std(list(state), vehicle_params),
+        dynamics_fn=vehicle_dynamics_std,
+        speed_fn=_speed_single_track,
+    )
+    dt = 0.01
+    simulator = VehicleSimulator(model, params, dt=dt, safety=safety)
+    simulator.reset([0.0, 0.0, 0.0, 5.0, 0.0, 0.0, 0.0])
+
+    phases = [
+        (1.0, -6.0),
+        (0.75, 0.0),
+        (2.0, 2.5),
+    ]
+    states, speeds = _run_longitudinal_phases(simulator, dt, phases)
+
+    assert speeds, "simulation produced no samples"
+    assert any(v < cfg.engage_speed + 1e-3 for v in speeds)
+    assert min(speeds) >= -1e-6
+
+    accel_steps = int(phases[-1][0] / dt)
+    assert max(speeds[-accel_steps:]) > 1.5
+
+    wheel_indices = (7, 8)
+    for idx in wheel_indices:
+        assert all(state[idx] >= -1e-9 for state in states), f"wheel state {idx} became negative"
+
+
+def test_multi_body_stays_at_rest_after_braking() -> None:
+    params = parameters_vehicle2()
+    cfg = _load_low_speed_cfg()
+    safety = LowSpeedSafety(
+        cfg,
+        longitudinal_index=3,
+        lateral_index=10,
+        yaw_rate_index=5,
+        slip_index=None,
+        wheel_speed_indices=(23, 24, 25, 26),
+    )
+
+    model = ModelInterface(
+        init_fn=lambda state, vehicle_params: init_mb(list(state), vehicle_params),
+        dynamics_fn=vehicle_dynamics_mb,
+        speed_fn=_speed_multi_body,
+    )
+    dt = 0.005
+    simulator = VehicleSimulator(model, params, dt=dt, safety=safety)
+    simulator.reset([0.0, 0.0, 0.0, 5.0, 0.0, 0.0, 0.0])
+
+    phases = [
+        (1.5, -5.0),
+        (1.0, 0.0),
+        (1.0, 0.0),
+    ]
+    states, speeds = _run_longitudinal_phases(simulator, dt, phases)
+
+    assert speeds, "simulation produced no samples"
+    assert any(v < cfg.engage_speed + 1e-3 for v in speeds)
+
+    hold_steps = int(phases[-1][0] / dt)
+    hold_speeds = speeds[-hold_steps:]
+    assert max(hold_speeds) <= 0.3
+    assert max(hold_speeds) - min(hold_speeds) <= 0.05
+
+    wheel_indices = (23, 24, 25, 26)
+    for idx in wheel_indices:
+        min_value = min(state[idx] for state in states)
+        assert min_value >= -1e-9
+        hold_values = [state[idx] for state in states[-hold_steps:]]
+        assert max(hold_values) <= cfg.stop_speed_epsilon + 1e-3

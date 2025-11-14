@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, List, Sequence
+from typing import Callable, List, Sequence, Tuple
 
 from .low_speed_safety import LowSpeedSafety
 
@@ -12,6 +12,15 @@ State = List[float]
 
 def _as_state(values: Sequence[float]) -> State:
     return [float(v) for v in values]
+
+
+def _ensure_state_list(state: Sequence[float]) -> State:
+    if isinstance(state, list):
+        arr = state
+        for idx, value in enumerate(arr):
+            arr[idx] = float(value)
+        return arr
+    return [float(v) for v in state]
 
 
 def _add_scaled(base: Sequence[float], scale: float, delta: Sequence[float]) -> State:
@@ -54,7 +63,7 @@ class VehicleSimulator:
     def reset(self, initial_state: Sequence[float]) -> None:
         self._safety.reset()
         state = self._model.init_fn(initial_state, self._params)
-        self._state = self._apply_safety(state)
+        self._state = self._apply_safety_inplace(_ensure_state_list(state))
 
     def speed(self) -> float:
         if self._state is None:
@@ -69,30 +78,37 @@ class VehicleSimulator:
 
         dt = self._dt
         u = [float(control[0]), float(control[1])]
-        s = self._state
+        current = self._state
 
-        k1 = self._dynamics(s, u)
-        k2 = self._dynamics(_add_scaled(s, 0.5 * dt, k1), u)
-        k3 = self._dynamics(_add_scaled(s, 0.5 * dt, k2), u)
-        k4 = self._dynamics(_add_scaled(s, dt, k3), u)
+        k1, current = self._dynamics(current, u)
+        self._state = current
+
+        k2_state = _add_scaled(current, 0.5 * dt, k1)
+        k2, _ = self._dynamics(k2_state, u)
+
+        k3_state = _add_scaled(current, 0.5 * dt, k2)
+        k3, _ = self._dynamics(k3_state, u)
+
+        k4_state = _add_scaled(current, dt, k3)
+        k4, _ = self._dynamics(k4_state, u)
 
         new_state = [
-            s[i]
+            current[i]
             + (dt / 6.0)
             * (k1[i] + 2.0 * k2[i] + 2.0 * k3[i] + k4[i])
-            for i in range(len(s))
+            for i in range(len(current))
         ]
-        self._state = self._apply_safety(new_state)
+        self._state = self._apply_safety_inplace(new_state)
         return self.state
 
     # Internal helpers -----------------------------------------------------
-    def _dynamics(self, state: Sequence[float], control: Sequence[float]) -> State:
-        clamped_state = self._apply_safety(state)
-        rhs = self._model.dynamics_fn(clamped_state, control, self._params)
-        return _as_state(rhs)
+    def _dynamics(self, state: Sequence[float], control: Sequence[float]) -> Tuple[State, State]:
+        arr = self._apply_safety_inplace(state)
+        rhs = self._model.dynamics_fn(arr, control, self._params)
+        return _as_state(rhs), arr
 
-    def _apply_safety(self, state: Sequence[float]) -> State:
-        arr = _as_state(state)
+    def _apply_safety_inplace(self, state: Sequence[float]) -> State:
+        arr = _ensure_state_list(state)
         speed = float(self._model.speed_fn(arr))
         self._safety.apply(arr, speed)
         return arr
