@@ -19,10 +19,21 @@ class BrakeController:
         brake_pedal = min(max(brake_pedal, 0.0), 1.0)
         total_force = min(self.config.max_force, brake_pedal * self.config.max_force)
 
-        if abs(speed) < self.config.min_regen_speed:
-            regen_force = 0.0
+        regen_capacity = min(
+            total_force,
+            brake_pedal * self.config.max_regen_force,
+            available_regen_force,
+        )
+        regen_capacity = max(0.0, regen_capacity)
+
+        min_regen_speed = max(self.config.min_regen_speed, 0.0)
+        if min_regen_speed <= 0.0:
+            weight = 1.0
         else:
-            regen_force = min(total_force, brake_pedal * self.config.max_regen_force, available_regen_force)
+            speed_ratio = abs(speed) / min_regen_speed
+            weight = max(0.0, min(speed_ratio, 1.0))
+
+        regen_force = regen_capacity * weight
 
         hydraulic_force = max(0.0, total_force - regen_force)
         return regen_force, hydraulic_force, total_force

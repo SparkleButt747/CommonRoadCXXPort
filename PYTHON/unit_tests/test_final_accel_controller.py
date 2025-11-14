@@ -97,8 +97,10 @@ def test_blended_braking_near_regen_cutoff() -> None:
     for _ in range(10):
         output_below = controller_low.step(DriverIntent(throttle=0.0, brake=1.0), speed=speed_below, dt=0.05)
     assert output_below is not None
-    assert output_below.regen_force == pytest.approx(0.0, abs=1e-6)
-    assert output_below.hydraulic_force == pytest.approx(output_below.brake_force, rel=1e-3)
+    assert output_below.regen_force > 0.0
+    assert output_below.regen_force < output_above.regen_force
+    assert output_below.hydraulic_force > output_above.hydraulic_force
+    assert output_below.brake_force == pytest.approx(output_above.brake_force, rel=1e-3)
 
 
 def test_braking_does_not_drive_backwards_at_rest() -> None:
