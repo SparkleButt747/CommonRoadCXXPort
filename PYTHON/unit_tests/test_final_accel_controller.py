@@ -104,3 +104,20 @@ def test_braking_does_not_drive_backwards_at_rest() -> None:
         output = controller.step(DriverIntent(throttle=0.0, brake=1.0), speed=0.0, dt=0.05)
     assert output is not None
     assert output.acceleration >= 0.0
+
+
+def test_reset_restores_integrators_and_soc() -> None:
+    controller = _build_controller()
+    intent = DriverIntent(throttle=1.0, brake=0.0)
+    for _ in range(20):
+        controller.step(intent, speed=10.0, dt=0.1)
+
+    initial_soc = controller.powertrain.config.initial_soc
+    assert controller.throttle > 0.0
+    assert controller.powertrain.soc < initial_soc
+
+    controller.reset()
+
+    assert controller.throttle == pytest.approx(0.0)
+    assert controller.brake == pytest.approx(0.0)
+    assert controller.powertrain.soc == pytest.approx(initial_soc)

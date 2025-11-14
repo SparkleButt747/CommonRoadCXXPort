@@ -71,6 +71,14 @@ class FinalAccelController:
         self.brake = 0.0
 
     # ------------------------------------------------------------------
+    def reset(self) -> None:
+        """Reset actuator integrators and the powertrain state."""
+
+        self.throttle = 0.0
+        self.brake = 0.0
+        self.powertrain.reset()
+
+    # ------------------------------------------------------------------
     def _apply_actuator_dynamics(self, intent: DriverIntent, dt: float) -> None:
         tau_throttle = max(self.cfg.tau_throttle, 1e-3)
         tau_brake = max(self.cfg.tau_brake, 1e-3)

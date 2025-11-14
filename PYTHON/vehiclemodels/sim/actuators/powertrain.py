@@ -85,3 +85,9 @@ class Powertrain:
 
         total_torque = drive_torque - regen_torque
         return total_torque, drive_torque, regen_torque
+
+    # ------------------------------------------------------------------
+    def reset(self) -> None:
+        """Restore the state of charge to the configured initial value."""
+
+        self.soc = float(self.config.initial_soc)
