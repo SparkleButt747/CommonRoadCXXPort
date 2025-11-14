@@ -110,6 +110,9 @@ def test_stop_and_go_remains_stable() -> None:
         longitudinal_index=3,
         yaw_rate_index=5,
         slip_index=6,
+        steering_index=2,
+        wheelbase=float(params.a + params.b),
+        rear_length=float(params.b),
     )
 
     model = ModelInterface(
@@ -123,9 +126,10 @@ def test_stop_and_go_remains_stable() -> None:
 
     controller = _build_controller(cfg.stop_speed_epsilon)
 
-    speeds = []
-    yaw_rates = []
-    slips = []
+    speeds: List[float] = []
+    yaw_rates: List[float] = []
+    slips: List[float] = []
+    steering_angles: List[float] = []
 
     for duration, intent in _phases():
         steps = int(duration / dt)
@@ -135,6 +139,7 @@ def test_stop_and_go_remains_stable() -> None:
             speeds.append(simulator.speed())
             yaw_rates.append(state[5])
             slips.append(state[6])
+            steering_angles.append(state[2])
 
     assert speeds, "simulation produced no samples"
     min_speed = min(speeds)
@@ -145,10 +150,16 @@ def test_stop_and_go_remains_stable() -> None:
     engaged_samples = [idx for idx, v in enumerate(speeds) if v < cfg.engage_speed + 1e-3]
     assert engaged_samples, "vehicle never reached low-speed regime"
 
-    tol = 5e-4
+    wheelbase = float(params.a + params.b)
+    rear_length = float(params.b)
+    tol = 5e-3
     for idx in engaged_samples:
-        assert abs(yaw_rates[idx]) <= tol
-        assert abs(slips[idx]) <= tol
+        delta = steering_angles[idx]
+        beta_ref = math.atan(math.tan(delta) * rear_length / wheelbase)
+        expected_yaw = speeds[idx] * math.cos(beta_ref) * math.tan(delta) / wheelbase
+        assert math.isfinite(expected_yaw)
+        assert abs(yaw_rates[idx] - expected_yaw) <= tol
+        assert abs(slips[idx] - beta_ref) <= tol
 
     assert max(abs(val) for val in yaw_rates) <= cfg.yaw_rate_limit + 1e-3
     assert max(abs(val) for val in slips) <= cfg.slip_angle_limit + 1e-3
@@ -163,6 +174,9 @@ def test_std_resumes_motion_after_full_stop() -> None:
         yaw_rate_index=5,
         slip_index=6,
         wheel_speed_indices=(7, 8),
+        steering_index=2,
+        wheelbase=float(params.a + params.b),
+        rear_length=float(params.b),
     )
 
     model = ModelInterface(
@@ -193,6 +207,45 @@ def test_std_resumes_motion_after_full_stop() -> None:
         assert all(state[idx] >= -1e-9 for state in states), f"wheel state {idx} became negative"
 
 
+def test_std_launch_with_steering_lock_overcomes_latch() -> None:
+    params = parameters_vehicle2()
+    cfg = _load_low_speed_cfg()
+    safety = LowSpeedSafety(
+        cfg,
+        longitudinal_index=3,
+        yaw_rate_index=5,
+        slip_index=6,
+        wheel_speed_indices=(7, 8),
+        steering_index=2,
+        wheelbase=float(params.a + params.b),
+        rear_length=float(params.b),
+    )
+
+    model = ModelInterface(
+        init_fn=lambda state, vehicle_params: init_std(list(state), vehicle_params),
+        dynamics_fn=vehicle_dynamics_std,
+        speed_fn=_speed_single_track,
+    )
+
+    dt = 0.01
+    simulator = VehicleSimulator(model, params, dt=dt, safety=safety)
+    lock_angle = math.radians(30.0)
+    simulator.reset([0.0, 0.0, lock_angle, 0.0, 0.0, 0.0, 0.0])
+
+    accel = 3.0
+    steps = int(3.0 / dt)
+    speeds: List[float] = []
+    for _ in range(steps):
+        simulator.step((0.0, accel))
+        speeds.append(simulator.speed())
+
+    assert speeds, "simulation produced no samples"
+    window_start = int(0.5 / dt)
+    assert max(speeds[window_start:]) > 1.5
+    assert speeds[int(1.5 / dt)] > 0.8
+    assert speeds[-1] > 2.0
+
+
 def test_multi_body_stays_at_rest_after_braking() -> None:
     params = parameters_vehicle2()
     cfg = _load_low_speed_cfg()
@@ -203,6 +256,9 @@ def test_multi_body_stays_at_rest_after_braking() -> None:
         yaw_rate_index=5,
         slip_index=None,
         wheel_speed_indices=(23, 24, 25, 26),
+        steering_index=2,
+        wheelbase=float(params.a + params.b),
+        rear_length=float(params.b),
     )
 
     model = ModelInterface(
@@ -235,6 +291,46 @@ def test_multi_body_stays_at_rest_after_braking() -> None:
         assert min_value >= -1e-9
         hold_values = [state[idx] for state in states[-hold_steps:]]
         assert max(hold_values) <= cfg.stop_speed_epsilon + 1e-3
+
+
+def test_multi_body_launch_with_steering_lock_overcomes_latch() -> None:
+    params = parameters_vehicle2()
+    cfg = _load_low_speed_cfg()
+    safety = LowSpeedSafety(
+        cfg,
+        longitudinal_index=3,
+        lateral_index=10,
+        yaw_rate_index=5,
+        slip_index=None,
+        wheel_speed_indices=(23, 24, 25, 26),
+        steering_index=2,
+        wheelbase=float(params.a + params.b),
+        rear_length=float(params.b),
+    )
+
+    model = ModelInterface(
+        init_fn=lambda state, vehicle_params: init_mb(list(state), vehicle_params),
+        dynamics_fn=vehicle_dynamics_mb,
+        speed_fn=_speed_multi_body,
+    )
+
+    dt = 0.005
+    simulator = VehicleSimulator(model, params, dt=dt, safety=safety)
+    lock_angle = math.radians(30.0)
+    simulator.reset([0.0, 0.0, lock_angle, 0.0, 0.0, 0.0, 0.0])
+
+    accel = 3.0
+    steps = int(2.5 / dt)
+    speeds: List[float] = []
+    for _ in range(steps):
+        simulator.step((0.0, accel))
+        speeds.append(simulator.speed())
+
+    assert speeds, "simulation produced no samples"
+    window_start = int(0.5 / dt)
+    assert max(speeds[window_start:]) > 1.2
+    assert speeds[int(1.5 / dt)] > 0.7
+    assert speeds[-1] > 1.4
 
 
 def test_rk4_predictor_does_not_latch_above_engage_speed() -> None:
