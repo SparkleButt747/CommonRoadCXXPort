@@ -1,0 +1,5 @@
+engage_speed: 0.4
+release_speed: 0.8
+yaw_rate_limit: 0.5
+slip_angle_limit: 0.35
+stop_speed_epsilon: 0.05

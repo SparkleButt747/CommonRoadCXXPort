@@ -32,7 +32,11 @@ def _load_cfg(component: str) -> dict:
     return omegaconf.OmegaConf.to_object(omegaconf.OmegaConf.load(path))
 
 
-def _build_controller(accel_max: float = 4.0, accel_min: float = -8.0) -> FinalAccelController:
+def _build_controller(
+    accel_max: float = 4.0,
+    accel_min: float = -8.0,
+    stop_speed_epsilon: float = 0.05,
+) -> FinalAccelController:
     params = parameters_vehicle2()
     return FinalAccelController(
         vehicle_mass=params.m,
@@ -46,6 +50,7 @@ def _build_controller(accel_max: float = 4.0, accel_min: float = -8.0) -> FinalA
             tau_brake=0.05,
             accel_min=accel_min,
             accel_max=accel_max,
+            stop_speed_epsilon=stop_speed_epsilon,
         ),
     )
 
@@ -90,3 +95,12 @@ def test_blended_braking_near_regen_cutoff() -> None:
     assert output_below is not None
     assert output_below.regen_force == pytest.approx(0.0, abs=1e-6)
     assert output_below.hydraulic_force == pytest.approx(output_below.brake_force, rel=1e-3)
+
+
+def test_braking_does_not_drive_backwards_at_rest() -> None:
+    controller = _build_controller()
+    output = None
+    for _ in range(10):
+        output = controller.step(DriverIntent(throttle=0.0, brake=1.0), speed=0.0, dt=0.05)
+    assert output is not None
+    assert output.acceleration >= 0.0

@@ -21,6 +21,7 @@ class FinalAccelControllerConfig:
     tau_brake: float
     accel_min: float
     accel_max: float
+    stop_speed_epsilon: float = 0.05
 
 
 @dataclass
@@ -109,6 +110,9 @@ class FinalAccelController:
         net_force = drive_force - brake_force + drag_force + rolling_force
         acceleration = net_force / self.mass
         acceleration = max(self.cfg.accel_min, min(self.cfg.accel_max, acceleration))
+
+        if abs(speed) <= self.cfg.stop_speed_epsilon and acceleration < 0.0:
+            acceleration = 0.0
 
         LOGGER.debug(
             "AccelCtrl | v=%.2f m/s throttle=%.2f brake=%.2f drive=%.1fN regen=%.1fN hyd=%.1fN drag=%.1fN roll=%.1fN -> a=%.2fm/s^2",

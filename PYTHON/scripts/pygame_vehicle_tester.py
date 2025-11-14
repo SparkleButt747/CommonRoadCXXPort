@@ -17,7 +17,7 @@ import math
 import pathlib
 import sys
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import pygame
 import numpy as np
@@ -39,6 +39,12 @@ from vehiclemodels.sim.actuators.aero import AeroConfig
 from vehiclemodels.sim.actuators.brake import BrakeConfig
 from vehiclemodels.sim.actuators.powertrain import PowertrainConfig
 from vehiclemodels.sim.actuators.rolling_resistance import RollingResistanceConfig
+from vehiclemodels.sim import (
+    LowSpeedSafety,
+    LowSpeedSafetyConfig,
+    ModelInterface,
+    VehicleSimulator as CoreSimulator,
+)
 from vehiclemodels.sim.controllers.final_accel_controller import (
     ControllerOutput,
     DriverIntent,
@@ -73,6 +79,11 @@ class ModelSpec:
     position_fn: Callable[[Sequence[float]], Tuple[float, float]]
     yaw_fn: Callable[[Sequence[float]], float]
     speed_fn: Callable[[Sequence[float]], float]
+    longitudinal_index: Optional[int]
+    lateral_index: Optional[int]
+    yaw_rate_index: Optional[int]
+    slip_index: Optional[int]
+    wheel_speed_indices: Optional[Tuple[int, ...]]
 
 
 # Model-specific helper lambdas -------------------------------------------------
@@ -124,6 +135,11 @@ MODEL_SPECS: Dict[str, ModelSpec] = {
         position_fn=_pos_xy0,
         yaw_fn=_yaw_idx(4),
         speed_fn=_speed_single_track,
+        longitudinal_index=3,
+        lateral_index=None,
+        yaw_rate_index=None,
+        slip_index=None,
+        wheel_speed_indices=None,
     ),
     "st": ModelSpec(
         name="Dynamic Single Track",
@@ -132,6 +148,11 @@ MODEL_SPECS: Dict[str, ModelSpec] = {
         position_fn=_pos_xy0,
         yaw_fn=_yaw_idx(4),
         speed_fn=_speed_single_track,
+        longitudinal_index=3,
+        lateral_index=None,
+        yaw_rate_index=5,
+        slip_index=6,
+        wheel_speed_indices=None,
     ),
     "std": ModelSpec(
         name="Single Track Drift",
@@ -140,6 +161,11 @@ MODEL_SPECS: Dict[str, ModelSpec] = {
         position_fn=_pos_xy0,
         yaw_fn=_yaw_idx(4),
         speed_fn=_speed_single_track,
+        longitudinal_index=3,
+        lateral_index=None,
+        yaw_rate_index=5,
+        slip_index=6,
+        wheel_speed_indices=(7, 8),
     ),
     "mb": ModelSpec(
         name="Multi Body",
@@ -148,6 +174,11 @@ MODEL_SPECS: Dict[str, ModelSpec] = {
         position_fn=_pos_xy0,
         yaw_fn=_yaw_idx(4),
         speed_fn=_speed_multi_body,
+        longitudinal_index=3,
+        lateral_index=10,
+        yaw_rate_index=5,
+        slip_index=None,
+        wheel_speed_indices=(23, 24, 25, 26),
     ),
 }
 
@@ -187,7 +218,24 @@ def _load_component_config(component: str, parameter_set: str) -> dict:
     return OmegaConf.to_object(OmegaConf.load(path))
 
 
-def _build_accel_controller(params: object) -> FinalAccelController:
+def _build_low_speed_safety(spec: ModelSpec) -> tuple[LowSpeedSafety, LowSpeedSafetyConfig]:
+    parameter_set = CONFIG["parameter_set"]
+    cfg_dict = _load_component_config("low_speed_safety", parameter_set)
+    cfg = LowSpeedSafetyConfig(**cfg_dict)
+    safety = LowSpeedSafety(
+        cfg,
+        longitudinal_index=spec.longitudinal_index,
+        lateral_index=spec.lateral_index,
+        yaw_rate_index=spec.yaw_rate_index,
+        slip_index=spec.slip_index,
+        wheel_speed_indices=spec.wheel_speed_indices,
+    )
+    return safety, cfg
+
+
+def _build_accel_controller(
+    params: object, low_speed_cfg: LowSpeedSafetyConfig
+) -> FinalAccelController:
     parameter_set = CONFIG["parameter_set"]
     powertrain_cfg = PowertrainConfig(**_load_component_config("powertrain", parameter_set))
     aero_cfg = AeroConfig(**_load_component_config("aero", parameter_set))
@@ -204,6 +252,7 @@ def _build_accel_controller(params: object) -> FinalAccelController:
         tau_brake=0.15,
         accel_min=-CONFIG["max_brake"],
         accel_max=CONFIG["max_accel"],
+        stop_speed_epsilon=low_speed_cfg.stop_speed_epsilon,
     )
 
     return FinalAccelController(
@@ -221,36 +270,34 @@ BASE_INITIAL_STATE = [0.0, 0.0, 0.0, 5.0, 0.0, 0.0, 0.0]
 
 
 class VehicleSimulator:
-    def __init__(self, spec: ModelSpec, params: object, dt: float):
+    def __init__(self, spec: ModelSpec, params: object, dt: float, safety: LowSpeedSafety):
         self.spec = spec
         self.params = params
         self.dt = dt
-        self.state = np.array(spec.init_fn(BASE_INITIAL_STATE, params), dtype=float)
+        self._core = CoreSimulator(
+            model=ModelInterface(
+                init_fn=spec.init_fn,
+                dynamics_fn=spec.dynamics_fn,
+                speed_fn=spec.speed_fn,
+            ),
+            params=params,
+            dt=dt,
+            safety=safety,
+        )
         self.history: List[Tuple[float, float]] = []
+        self.state: List[float] = []
+        self.reset()
 
     def reset(self) -> None:
-        self.state = np.array(self.spec.init_fn(BASE_INITIAL_STATE, self.params), dtype=float)
+        self._core.reset(BASE_INITIAL_STATE)
+        self.state = self._core.state
         self.history.clear()
 
-    # Numerical integration --------------------------------------------------
-    def _dynamics(self, state: np.ndarray, control: Tuple[float, float]) -> np.ndarray:
-        steer_rate, acceleration = control
-        rhs = self.spec.dynamics_fn(state.tolist(), [steer_rate, acceleration], self.params)
-        return np.asarray(rhs, dtype=float)
-
     def step(self, steer_rate: float, acceleration: float) -> None:
-        dt = self.dt
-        u = (steer_rate, acceleration)
-        s = self.state
+        state = self._core.step((steer_rate, acceleration))
+        self.state = state
 
-        # Runge-Kutta 4th order integration
-        k1 = self._dynamics(s, u)
-        k2 = self._dynamics(s + 0.5 * dt * k1, u)
-        k3 = self._dynamics(s + 0.5 * dt * k2, u)
-        k4 = self._dynamics(s + dt * k3, u)
-        self.state = s + dt / 6.0 * (k1 + 2 * k2 + 2 * k3 + k4)
-
-        pos = self.spec.position_fn(self.state.tolist())
+        pos = self.spec.position_fn(state)
         self.history.append(pos)
         if len(self.history) > CONFIG["history_length"]:
             self.history = self.history[-CONFIG["history_length"] :]
@@ -258,13 +305,13 @@ class VehicleSimulator:
     # Convenience getters ----------------------------------------------------
     @property
     def pose(self) -> Tuple[float, float, float]:
-        x, y = self.spec.position_fn(self.state.tolist())
-        psi = self.spec.yaw_fn(self.state.tolist())
+        x, y = self.spec.position_fn(self.state)
+        psi = self.spec.yaw_fn(self.state)
         return x, y, psi
 
     @property
     def speed(self) -> float:
-        return self.spec.speed_fn(self.state.tolist())
+        return self._core.speed()
 
     @property
     def steering_angle(self) -> float:
@@ -405,8 +452,9 @@ def main() -> None:
     clock = pygame.time.Clock()
     font = pygame.font.Font(None, 24)
 
-    simulator = VehicleSimulator(spec, params, dt=CONFIG["time_step"])
-    accel_controller = _build_accel_controller(params)
+    safety, low_speed_cfg = _build_low_speed_safety(spec)
+    simulator = VehicleSimulator(spec, params, dt=CONFIG["time_step"], safety=safety)
+    accel_controller = _build_accel_controller(params, low_speed_cfg)
     fps = max(1, int(round(1.0 / CONFIG["time_step"])))
 
     running = True
