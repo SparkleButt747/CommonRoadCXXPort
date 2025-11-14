@@ -1,0 +1,9 @@
+wheel:
+  max_angle: 0.6          # [rad] maximum wheel angle command from the driver
+  max_rate: 1.5           # [rad/s] maximum wheel slew rate from keyboard input
+  time_constant: 0.08     # [s] response time of the steering wheel actuator
+  centering:
+    stiffness: 6.0        # [1/s] proportional return rate gain toward center
+    deadband: 0.01        # [rad] no centering when inside this deadband
+actuator:
+  time_constant: 0.25     # [s] steering actuator time constant for final angle tracking

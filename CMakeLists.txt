@@ -70,6 +70,7 @@ add_library(commonroad STATIC
     # utils
     ${COMMONROAD_SRC_DIR}/utils/acceleration_constraints.cpp
     ${COMMONROAD_SRC_DIR}/utils/longitudinal_parameters.cpp
+    ${COMMONROAD_SRC_DIR}/utils/steering_controller.cpp
     ${COMMONROAD_SRC_DIR}/utils/steering_constraints.cpp
     ${COMMONROAD_SRC_DIR}/utils/steering_parameters.cpp
     ${COMMONROAD_SRC_DIR}/utils/tire_model.cpp
@@ -167,6 +168,14 @@ if(BUILD_COMMONROAD_TESTS)
         tests/test_vehicle.cpp
     )
     target_link_libraries(test_vehicle
+        PRIVATE
+            commonroad
+    )
+
+    add_executable(test_steering_controller
+        tests/test_steering_controller.cpp
+    )
+    target_link_libraries(test_steering_controller
         PRIVATE
             commonroad
     )

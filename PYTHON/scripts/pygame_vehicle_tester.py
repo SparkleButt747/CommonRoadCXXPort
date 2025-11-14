@@ -45,6 +45,12 @@ from vehiclemodels.sim.controllers.final_accel_controller import (
     FinalAccelController,
     FinalAccelControllerConfig,
 )
+from vehiclemodels.sim.controllers.steering import (
+    FinalSteerController,
+    FinalSteerControllerConfig,
+    SteeringWheel,
+    SteeringWheelConfig,
+)
 
 # Vehicle dynamics and state initializers
 from vehiclemodels.init_ks import init_ks
@@ -162,10 +168,10 @@ CONFIG = {
     "time_step": 0.01,  # integration step size in seconds
     "max_accel": 4.0,  # [m/s^2] upper bound for longitudinal acceleration
     "max_brake": 8.0,  # [m/s^2] peak braking deceleration (positive magnitude)
-    "max_steer_rate": math.radians(45.0),  # [rad/s] steering angle rate
     "history_length": 2000,  # number of past poses to keep for drawing the path
     "window_size": (960, 720),
     "meters_per_pixel": 0.5,  # scale factor for rendering (smaller -> zoomed out)
+    "steering_config": PYTHON_ROOT / "config" / "steering.yaml",
 }
 
 CONFIG_ROOT = PYTHON_ROOT / "vehiclemodels" / "config"
@@ -261,9 +267,9 @@ class VehicleSimulator:
         return self.spec.speed_fn(self.state.tolist())
 
 
-def _handle_input() -> Tuple[float, DriverIntent]:
+def _handle_input() -> Tuple[int, DriverIntent]:
     keys = pygame.key.get_pressed()
-    steer = 0.0
+    steer_nudge = 0
     throttle = 0.0
     brake = 0.0
 
@@ -274,12 +280,12 @@ def _handle_input() -> Tuple[float, DriverIntent]:
     if keys[pygame.K_SPACE]:
         brake = 1.0
 
-    if keys[pygame.K_LEFT]:
-        steer -= CONFIG["max_steer_rate"]
-    if keys[pygame.K_RIGHT]:
-        steer += CONFIG["max_steer_rate"]
+    if keys[pygame.K_LEFT] and not keys[pygame.K_RIGHT]:
+        steer_nudge = -1
+    elif keys[pygame.K_RIGHT] and not keys[pygame.K_LEFT]:
+        steer_nudge = 1
 
-    return steer, DriverIntent(throttle=throttle, brake=brake)
+    return steer_nudge, DriverIntent(throttle=throttle, brake=brake)
 
 
 def _draw_vehicle(
@@ -287,6 +293,8 @@ def _draw_vehicle(
     simulator: VehicleSimulator,
     font: pygame.font.Font,
     ctrl_output: "ControllerOutput | None",
+    steer_angle: float,
+    desired_angle: float,
 ) -> None:
     width, height = screen.get_size()
     cx, cy = width // 2, height // 2
@@ -331,6 +339,8 @@ def _draw_vehicle(
         f"Model: {CONFIG['model']} ({MODEL_SPECS[CONFIG['model']].name})",
         f"Parameters: {CONFIG['parameter_set']}",
         f"Speed: {simulator.speed:5.2f} m/s",
+        f"Steer angle: {math.degrees(steer_angle):5.2f} deg",
+        f"Desired angle: {math.degrees(desired_angle):5.2f} deg",
     ]
     if ctrl_output is not None:
         text_lines.extend(
@@ -366,6 +376,17 @@ def _validate_config() -> Tuple[ModelSpec, object]:
 def main() -> None:
     spec, params = _validate_config()
 
+    steering_cfg_path = pathlib.Path(CONFIG["steering_config"])
+    if not steering_cfg_path.exists():
+        raise FileNotFoundError(f"Steering config not found: {steering_cfg_path}")
+    steering_cfg_data = OmegaConf.to_object(OmegaConf.load(steering_cfg_path))
+    if "wheel" not in steering_cfg_data or "final" not in steering_cfg_data:
+        raise ValueError("Steering config must define 'wheel' and 'final' sections")
+    wheel = SteeringWheel(SteeringWheelConfig(**steering_cfg_data["wheel"]))
+    steer_controller = FinalSteerController(
+        FinalSteerControllerConfig(**steering_cfg_data["final"])
+    )
+
     pygame.init()
     pygame.display.set_caption("CommonRoad Vehicle Model Playground")
     screen = pygame.display.set_mode(CONFIG["window_size"])
@@ -378,6 +399,7 @@ def main() -> None:
 
     running = True
     controller_output: ControllerOutput | None = None
+    last_desired_angle = 0.0
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -387,11 +409,25 @@ def main() -> None:
             elif event.type == pygame.KEYDOWN and event.key == pygame.K_r:
                 simulator.reset()
                 controller_output = None
+                wheel.reset()
+                steer_controller.reset()
+                last_desired_angle = 0.0
 
-        steer, intent = _handle_input()
+        steer_nudge, intent = _handle_input()
+        last_desired_angle = wheel.update(steer_nudge, CONFIG["time_step"])
+        steer_angle, steer_rate = steer_controller.step(
+            last_desired_angle, CONFIG["time_step"]
+        )
         controller_output = accel_controller.step(intent, simulator.speed, CONFIG["time_step"])
-        simulator.step(steer, controller_output.acceleration)
-        _draw_vehicle(screen, simulator, font, controller_output)
+        simulator.step(steer_rate, controller_output.acceleration)
+        _draw_vehicle(
+            screen,
+            simulator,
+            font,
+            controller_output,
+            steer_angle,
+            last_desired_angle,
+        )
 
         pygame.display.flip()
         clock.tick(fps)

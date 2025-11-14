@@ -1,6 +1,7 @@
 // app/main.cpp
 #include <cmath>
 #include <cstdio>
+#include <exception>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -33,12 +34,14 @@
 #include "vehiclemodels/vehicle_dynamics_st.hpp"
 #include "vehiclemodels/vehicle_dynamics_std.hpp"
 #include "utils/vehicle_dynamics_ks_cog.hpp"
+#include "utils/steering_controller.hpp"
 
 #include "vehiclemodels/init_ks.hpp"
 #include "vehiclemodels/init_st.hpp"
 #include "vehiclemodels/init_std.hpp"
 
 namespace vm = vehiclemodels;
+namespace vutils = vehiclemodels::utils;
 
 // --------------------------------------------------------------
 // Simulation model dispatch
@@ -331,6 +334,36 @@ int main(int, char**)
 
     reset_simulation(sim, currentModel, vehicle_ids[currentVehicleIdx], param_root);
 
+    vutils::SteeringConfig steering_config;
+    try {
+        steering_config = vutils::SteeringConfig::load_default();
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "Error: %s\n", e.what());
+        SDL_DestroyRenderer(renderer);
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+        return 1;
+    }
+
+    vutils::SteeringWheel         steering_wheel;
+    vutils::FinalSteerController  steer_controller;
+    vutils::SteeringWheel::Output wheel_state{};
+    vutils::FinalSteerController::Output steer_state{};
+
+    auto sync_controllers = [&]() {
+        steering_wheel = vutils::SteeringWheel(steering_config.wheel, sim.params.steering);
+        steer_controller =
+            vutils::FinalSteerController(steering_config.actuator, sim.params.steering);
+
+        const double current_angle = (sim.x.size() > 2) ? sim.x[2] : 0.0;
+        steering_wheel.reset(current_angle);
+        steer_controller.reset(current_angle);
+        wheel_state = steering_wheel.last_output();
+        steer_state = steer_controller.last_output();
+    };
+
+    sync_controllers();
+
     bool running = true;
     Uint64 prev_counter = SDL_GetPerformanceCounter();
     double sim_time = 0.0;
@@ -356,15 +389,18 @@ int main(int, char**)
         if (keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_UP])    throttle_cmd += 1.0;
         if (keys[SDL_SCANCODE_S] || keys[SDL_SCANCODE_DOWN])  throttle_cmd -= 1.0;
 
-        double steer_rate_cmd = 0.0;
-        if (keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_LEFT])  steer_rate_cmd += 1.0;
-        if (keys[SDL_SCANCODE_D] || keys[SDL_SCANCODE_RIGHT]) steer_rate_cmd -= 1.0;
+        double steer_input = 0.0;
+        if (keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_LEFT])  steer_input += 1.0;
+        if (keys[SDL_SCANCODE_D] || keys[SDL_SCANCODE_RIGHT]) steer_input -= 1.0;
 
-        const double MAX_ACCEL      = 4.0;
-        const double MAX_STEER_RATE = 0.8;
+        const double MAX_ACCEL = 4.0;
+
+        wheel_state = steering_wheel.update(steer_input, sim.dt);
+        const double current_delta = (sim.x.size() > 2) ? sim.x[2] : wheel_state.angle;
+        steer_state = steer_controller.update(wheel_state.angle, current_delta, sim.dt);
 
         sim.u[1] = throttle_cmd * MAX_ACCEL;
-        sim.u[0] = steer_rate_cmd * MAX_STEER_RATE;
+        sim.u[0] = steer_state.rate;
 
         // integrate one step
         auto f = compute_rhs(sim);
@@ -396,6 +432,7 @@ int main(int, char**)
             if (ImGui::Combo("Model", &model_idx, model_items, IM_ARRAYSIZE(model_items))) {
                 currentModel = static_cast<ModelType>(model_idx);
                 reset_simulation(sim, currentModel, vehicle_ids[currentVehicleIdx], param_root);
+                sync_controllers();
             }
 
             const char* vehicle_items[] = {
@@ -407,14 +444,21 @@ int main(int, char**)
             if (ImGui::Combo("Vehicle", &currentVehicleIdx,
                              vehicle_items, IM_ARRAYSIZE(vehicle_items))) {
                 reset_simulation(sim, currentModel, vehicle_ids[currentVehicleIdx], param_root);
+                sync_controllers();
             }
 
             ImGui::SliderFloat("dt [s]", &sim.dt, 0.001f, 0.05f, "%.3f");
 
             ImGui::Separator();
             ImGui::Text("Inputs:");
-            ImGui::Text("Steer rate: %+6.3f rad/s", sim.u[0]);
-            ImGui::Text("Accel:      %+6.3f m/s^2", sim.u[1]);
+            ImGui::Text("Wheel target: %+6.3f rad", wheel_state.target_angle);
+            ImGui::Text("Wheel angle:  %+6.3f rad", wheel_state.angle);
+            ImGui::Text("Steer target: %+6.3f rad", steer_state.filtered_target);
+            ImGui::Text("Steer angle (cmd): %+6.3f rad", steer_state.angle);
+            const double sim_delta = (sim.x.size() > 2) ? sim.x[2] : 0.0;
+            ImGui::Text("Steer angle (sim): %+6.3f rad", sim_delta);
+            ImGui::Text("Steer rate:   %+6.3f rad/s", steer_state.rate);
+            ImGui::Text("Accel:        %+6.3f m/s^2", sim.u[1]);
 
             ImGui::Separator();
             ImGui::Text("State:");
