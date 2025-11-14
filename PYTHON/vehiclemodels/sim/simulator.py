@@ -80,17 +80,17 @@ class VehicleSimulator:
         u = [float(control[0]), float(control[1])]
         current = self._state
 
-        k1, current = self._dynamics(current, u)
+        k1, current = self._dynamics(current, u, update_latch=True)
         self._state = current
 
         k2_state = _add_scaled(current, 0.5 * dt, k1)
-        k2, _ = self._dynamics(k2_state, u)
+        k2, _ = self._dynamics(k2_state, u, update_latch=False)
 
         k3_state = _add_scaled(current, 0.5 * dt, k2)
-        k3, _ = self._dynamics(k3_state, u)
+        k3, _ = self._dynamics(k3_state, u, update_latch=False)
 
         k4_state = _add_scaled(current, dt, k3)
-        k4, _ = self._dynamics(k4_state, u)
+        k4, _ = self._dynamics(k4_state, u, update_latch=False)
 
         new_state = [
             current[i]
@@ -102,15 +102,23 @@ class VehicleSimulator:
         return self.state
 
     # Internal helpers -----------------------------------------------------
-    def _dynamics(self, state: Sequence[float], control: Sequence[float]) -> Tuple[State, State]:
-        arr = self._apply_safety_inplace(state)
+    def _dynamics(
+        self,
+        state: Sequence[float],
+        control: Sequence[float],
+        *,
+        update_latch: bool,
+    ) -> Tuple[State, State]:
+        arr = self._apply_safety_inplace(state, update_latch=update_latch)
         rhs = self._model.dynamics_fn(arr, control, self._params)
         return _as_state(rhs), arr
 
-    def _apply_safety_inplace(self, state: Sequence[float]) -> State:
+    def _apply_safety_inplace(
+        self, state: Sequence[float], *, update_latch: bool = True
+    ) -> State:
         arr = _ensure_state_list(state)
         speed = float(self._model.speed_fn(arr))
-        self._safety.apply(arr, speed)
+        self._safety.apply(arr, speed, update_latch=update_latch)
         return arr
 
 

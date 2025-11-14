@@ -1,6 +1,7 @@
 import math
 import pathlib
 import sys
+from types import SimpleNamespace
 from typing import Iterable, List, Sequence, Tuple
 
 from omegaconf import OmegaConf
@@ -234,3 +235,53 @@ def test_multi_body_stays_at_rest_after_braking() -> None:
         assert min_value >= -1e-9
         hold_values = [state[idx] for state in states[-hold_steps:]]
         assert max(hold_values) <= cfg.stop_speed_epsilon + 1e-3
+
+
+def test_rk4_predictor_does_not_latch_above_engage_speed() -> None:
+    cfg = _load_low_speed_cfg()
+    safety = LowSpeedSafety(
+        cfg,
+        longitudinal_index=0,
+        yaw_rate_index=1,
+        slip_index=2,
+    )
+
+    params = SimpleNamespace(target_speed=cfg.engage_speed + 0.005, rate=0.1)
+
+    def init_state(state: Sequence[float], _params: object) -> Sequence[float]:
+        return list(state)
+
+    def dynamics(
+        state: Sequence[float], _control: Sequence[float], params: SimpleNamespace
+    ) -> Sequence[float]:
+        speed = float(state[0])
+        dvx = -params.rate if speed > params.target_speed else params.rate
+        return [dvx, 0.0, 0.0]
+
+    def speed_fn(state: Sequence[float]) -> float:
+        return float(state[0])
+
+    model = ModelInterface(
+        init_fn=init_state,
+        dynamics_fn=dynamics,
+        speed_fn=speed_fn,
+    )
+
+    dt = 0.2
+    simulator = VehicleSimulator(model, params, dt=dt, safety=safety)
+    initial_state = [params.target_speed + 0.002, 0.2, 0.1]
+    simulator.reset(initial_state)
+
+    state = simulator.step((0.0, 0.0))
+    realized_speed = simulator.speed()
+
+    assert realized_speed > cfg.engage_speed
+    assert not safety.engaged
+
+    yaw_rate = state[1]
+    slip = state[2]
+
+    assert abs(yaw_rate - initial_state[1]) < 1e-12
+    assert abs(slip - initial_state[2]) < 1e-12
+    assert yaw_rate > 0.0
+    assert slip > 0.0

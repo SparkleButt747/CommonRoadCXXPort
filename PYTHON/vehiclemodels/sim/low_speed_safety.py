@@ -62,17 +62,24 @@ class LowSpeedSafety:
     def reset(self) -> None:
         self._engaged = False
 
-    def apply(self, state: MutableSequence[float], speed: float) -> None:
+    def apply(
+        self,
+        state: MutableSequence[float],
+        speed: float,
+        *,
+        update_latch: bool = True,
+    ) -> None:
         """Clamp unstable states when operating near standstill."""
 
         cfg = self.config
 
-        if self._engaged:
-            if speed > cfg.release_speed:
-                self._engaged = False
-        else:
-            if speed < cfg.engage_speed:
-                self._engaged = True
+        if update_latch:
+            if self._engaged:
+                if speed > cfg.release_speed:
+                    self._engaged = False
+            else:
+                if speed < cfg.engage_speed:
+                    self._engaged = True
 
         if self._longitudinal_index is not None:
             idx = self._longitudinal_index
