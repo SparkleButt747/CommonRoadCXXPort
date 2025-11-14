@@ -472,6 +472,7 @@ def main() -> None:
                 controller_output = None
                 wheel.reset()
                 steer_controller.reset()
+                accel_controller.reset()
                 last_desired_angle = 0.0
                 measured_angle = simulator.steering_angle
 
