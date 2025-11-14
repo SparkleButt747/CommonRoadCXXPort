@@ -12,10 +12,10 @@ namespace {
 SteeringConfig::Wheel make_wheel_config()
 {
     SteeringConfig::Wheel cfg;
-    cfg.max_angle           = 0.5;
-    cfg.max_rate            = 1.2;
-    cfg.time_constant       = 0.05;
-    cfg.centering_stiffness = 4.0;
+    cfg.max_angle           = 0.6;
+    cfg.max_rate            = 3.5;
+    cfg.nudge_angle         = 0.06;
+    cfg.centering_stiffness = 5.0;
     cfg.centering_deadband  = 0.01;
     return cfg;
 }
@@ -30,10 +30,14 @@ SteeringParameters make_limits()
     return limits;
 }
 
-SteeringConfig::Actuator make_actuator_config()
+SteeringConfig::Final make_final_config()
 {
-    SteeringConfig::Actuator cfg;
-    cfg.time_constant = 0.2;
+    SteeringConfig::Final cfg;
+    cfg.min_angle               = -0.6;
+    cfg.max_angle               = 0.6;
+    cfg.max_rate                = 2.5;
+    cfg.actuator_time_constant  = 0.18;
+    cfg.smoothing_time_constant = 0.12;
     return cfg;
 }
 
@@ -51,8 +55,10 @@ int main()
     // Test automatic centering of steering wheel
     {
         SteeringWheel wheel(make_wheel_config(), make_limits());
-        wheel.update(1.0, dt); // nudge left
-        for (int i = 0; i < 40; ++i) {
+        for (int i = 0; i < 4; ++i) {
+            wheel.update(1.0, dt); // multiple nudges left
+        }
+        for (int i = 0; i < 80; ++i) {
             wheel.update(0.0, dt);
         }
         const auto& out = wheel.last_output();
@@ -60,7 +66,7 @@ int main()
             std::cerr << "Centering test failed: angle=" << out.angle << '\n';
             return 1;
         }
-        if (std::abs(out.rate) > 0.2) {
+        if (std::abs(out.rate) > 0.4) {
             std::cerr << "Centering test failed: rate=" << out.rate << '\n';
             return 1;
         }
@@ -86,7 +92,7 @@ int main()
 
     // Test smooth transition of final controller
     {
-        FinalSteerController controller(make_actuator_config(), make_limits());
+        FinalSteerController controller(make_final_config(), make_limits());
         double current_angle = 0.0;
         const double desired = 0.5;
         auto first = controller.update(desired, current_angle, dt);
@@ -101,7 +107,7 @@ int main()
 
         double prev_rate = first.rate;
         current_angle    = first.angle;
-        for (int i = 0; i < 20; ++i) {
+        for (int i = 0; i < 30; ++i) {
             auto out = controller.update(desired, current_angle, dt);
             if (std::abs(out.rate) > make_limits().v_max + 1e-6) {
                 std::cerr << "Smoothing test failed: rate limit exceeded\n";

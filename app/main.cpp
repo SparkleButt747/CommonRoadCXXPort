@@ -353,7 +353,7 @@ int main(int, char**)
     auto sync_controllers = [&]() {
         steering_wheel = vutils::SteeringWheel(steering_config.wheel, sim.params.steering);
         steer_controller =
-            vutils::FinalSteerController(steering_config.actuator, sim.params.steering);
+            vutils::FinalSteerController(steering_config.final, sim.params.steering);
 
         const double current_angle = (sim.x.size() > 2) ? sim.x[2] : 0.0;
         steering_wheel.reset(current_angle);
@@ -389,13 +389,15 @@ int main(int, char**)
         if (keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_UP])    throttle_cmd += 1.0;
         if (keys[SDL_SCANCODE_S] || keys[SDL_SCANCODE_DOWN])  throttle_cmd -= 1.0;
 
-        double steer_input = 0.0;
-        if (keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_LEFT])  steer_input += 1.0;
-        if (keys[SDL_SCANCODE_D] || keys[SDL_SCANCODE_RIGHT]) steer_input -= 1.0;
+        double steer_nudge = 0.0;
+        if (keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_LEFT])  steer_nudge += 1.0;
+        if (keys[SDL_SCANCODE_D] || keys[SDL_SCANCODE_RIGHT]) steer_nudge -= 1.0;
+        if (steer_nudge > 1.0) steer_nudge = 1.0;
+        if (steer_nudge < -1.0) steer_nudge = -1.0;
 
         const double MAX_ACCEL = 4.0;
 
-        wheel_state = steering_wheel.update(steer_input, sim.dt);
+        wheel_state = steering_wheel.update(steer_nudge, sim.dt);
         const double current_delta = (sim.x.size() > 2) ? sim.x[2] : wheel_state.angle;
         steer_state = steer_controller.update(wheel_state.angle, current_delta, sim.dt);
 
@@ -451,8 +453,8 @@ int main(int, char**)
 
             ImGui::Separator();
             ImGui::Text("Inputs:");
-            ImGui::Text("Wheel target: %+6.3f rad", wheel_state.target_angle);
             ImGui::Text("Wheel angle:  %+6.3f rad", wheel_state.angle);
+            ImGui::Text("Wheel rate:   %+6.3f rad/s", wheel_state.rate);
             ImGui::Text("Steer target: %+6.3f rad", steer_state.filtered_target);
             ImGui::Text("Steer angle (cmd): %+6.3f rad", steer_state.angle);
             const double sim_delta = (sim.x.size() > 2) ? sim.x[2] : 0.0;
