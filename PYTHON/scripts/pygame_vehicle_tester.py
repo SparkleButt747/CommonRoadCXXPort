@@ -84,6 +84,7 @@ class ModelSpec:
     yaw_rate_index: Optional[int]
     slip_index: Optional[int]
     wheel_speed_indices: Optional[Tuple[int, ...]]
+    steering_index: Optional[int]
 
 
 # Model-specific helper lambdas -------------------------------------------------
@@ -140,6 +141,7 @@ MODEL_SPECS: Dict[str, ModelSpec] = {
         yaw_rate_index=None,
         slip_index=None,
         wheel_speed_indices=None,
+        steering_index=2,
     ),
     "st": ModelSpec(
         name="Dynamic Single Track",
@@ -153,6 +155,7 @@ MODEL_SPECS: Dict[str, ModelSpec] = {
         yaw_rate_index=5,
         slip_index=6,
         wheel_speed_indices=None,
+        steering_index=2,
     ),
     "std": ModelSpec(
         name="Single Track Drift",
@@ -166,6 +169,7 @@ MODEL_SPECS: Dict[str, ModelSpec] = {
         yaw_rate_index=5,
         slip_index=6,
         wheel_speed_indices=(7, 8),
+        steering_index=2,
     ),
     "mb": ModelSpec(
         name="Multi Body",
@@ -179,6 +183,7 @@ MODEL_SPECS: Dict[str, ModelSpec] = {
         yaw_rate_index=5,
         slip_index=None,
         wheel_speed_indices=(23, 24, 25, 26),
+        steering_index=2,
     ),
 }
 
@@ -218,10 +223,17 @@ def _load_component_config(component: str, parameter_set: str) -> dict:
     return OmegaConf.to_object(OmegaConf.load(path))
 
 
-def _build_low_speed_safety(spec: ModelSpec) -> tuple[LowSpeedSafety, LowSpeedSafetyConfig]:
+def _build_low_speed_safety(
+    spec: ModelSpec, params: object
+) -> tuple[LowSpeedSafety, LowSpeedSafetyConfig]:
     parameter_set = CONFIG["parameter_set"]
     cfg_dict = _load_component_config("low_speed_safety", parameter_set)
     cfg = LowSpeedSafetyConfig(**cfg_dict)
+    wheelbase = None
+    rear_length = None
+    if hasattr(params, "a") and hasattr(params, "b"):
+        wheelbase = float(params.a) + float(params.b)
+        rear_length = float(params.b)
     safety = LowSpeedSafety(
         cfg,
         longitudinal_index=spec.longitudinal_index,
@@ -229,6 +241,9 @@ def _build_low_speed_safety(spec: ModelSpec) -> tuple[LowSpeedSafety, LowSpeedSa
         yaw_rate_index=spec.yaw_rate_index,
         slip_index=spec.slip_index,
         wheel_speed_indices=spec.wheel_speed_indices,
+        steering_index=spec.steering_index,
+        wheelbase=wheelbase,
+        rear_length=rear_length,
     )
     return safety, cfg
 
@@ -452,7 +467,7 @@ def main() -> None:
     clock = pygame.time.Clock()
     font = pygame.font.Font(None, 24)
 
-    safety, low_speed_cfg = _build_low_speed_safety(spec)
+    safety, low_speed_cfg = _build_low_speed_safety(spec, params)
     simulator = VehicleSimulator(spec, params, dt=CONFIG["time_step"], safety=safety)
     accel_controller = _build_accel_controller(params, low_speed_cfg)
     fps = max(1, int(round(1.0 / CONFIG["time_step"])))
