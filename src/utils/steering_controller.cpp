@@ -1,5 +1,6 @@
 #include "utils/steering_controller.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <stdexcept>
@@ -16,11 +17,23 @@ namespace utils {
 namespace {
 constexpr double EPS = 1e-9;
 
+double clamp(double value, double low, double high)
+{
+    return std::max(low, std::min(high, value));
+}
+
 double clamp01(double value)
 {
-    if (value < 0.0) return 0.0;
-    if (value > 1.0) return 1.0;
-    return value;
+    return clamp(value, 0.0, 1.0);
+}
+
+double fetch_required_double(const YAML::Node& node, const char* key)
+{
+    auto value = node[key];
+    if (!value) {
+        throw std::runtime_error(std::string{"steering config missing key: "} + key);
+    }
+    return value.as<double>();
 }
 
 SteeringConfig parse_config(const YAML::Node& root)
@@ -28,30 +41,111 @@ SteeringConfig parse_config(const YAML::Node& root)
     SteeringConfig cfg{};
 
     auto wheel = root["wheel"];
-    if (!wheel) {
+    if (!wheel || !wheel.IsMap()) {
         throw std::runtime_error("steering config missing 'wheel' section");
     }
-    cfg.wheel.max_angle           = wheel["max_angle"].as<double>();
-    cfg.wheel.max_rate            = wheel["max_rate"].as<double>();
-    cfg.wheel.time_constant       = wheel["time_constant"].as<double>(0.0);
+    cfg.wheel.max_angle           = fetch_required_double(wheel, "max_angle");
+    cfg.wheel.max_rate            = fetch_required_double(wheel, "max_rate");
+    cfg.wheel.nudge_angle         = fetch_required_double(wheel, "nudge_angle");
+    cfg.wheel.centering_stiffness = fetch_required_double(wheel, "centering_stiffness");
+    cfg.wheel.centering_deadband  = fetch_required_double(wheel, "centering_deadband");
 
-    auto centering = wheel["centering"];
-    if (!centering) {
-        throw std::runtime_error("steering config missing 'wheel.centering' section");
+    auto final = root["final"];
+    if (!final || !final.IsMap()) {
+        throw std::runtime_error("steering config missing 'final' section");
     }
-    cfg.wheel.centering_stiffness = centering["stiffness"].as<double>();
-    cfg.wheel.centering_deadband  = centering["deadband"].as<double>();
+    cfg.final.min_angle               = fetch_required_double(final, "min_angle");
+    cfg.final.max_angle               = fetch_required_double(final, "max_angle");
+    cfg.final.max_rate                = fetch_required_double(final, "max_rate");
+    cfg.final.actuator_time_constant  = fetch_required_double(final, "actuator_time_constant");
+    cfg.final.smoothing_time_constant = fetch_required_double(final, "smoothing_time_constant");
 
-    auto actuator = root["actuator"];
-    if (!actuator) {
-        throw std::runtime_error("steering config missing 'actuator' section");
-    }
-    cfg.actuator.time_constant = actuator["time_constant"].as<double>();
-
+    cfg.validate();
     return cfg;
 }
 
+double combined_min_angle(const SteeringConfig::Final& cfg, const SteeringParameters& limits)
+{
+    if (limits.max <= limits.min) {
+        return cfg.min_angle;
+    }
+    return std::max(cfg.min_angle, limits.min);
+}
+
+double combined_max_angle(const SteeringConfig::Final& cfg, const SteeringParameters& limits)
+{
+    if (limits.max <= limits.min) {
+        return cfg.max_angle;
+    }
+    return std::min(cfg.max_angle, limits.max);
+}
+
+double combined_rate_min(const SteeringConfig::Final& cfg, const SteeringParameters& limits)
+{
+    double rate_min = -cfg.max_rate;
+    if (limits.v_min < 0.0) {
+        rate_min = std::max(rate_min, limits.v_min);
+    }
+    return rate_min;
+}
+
+double combined_rate_max(const SteeringConfig::Final& cfg, const SteeringParameters& limits)
+{
+    double rate_max = cfg.max_rate;
+    if (limits.v_max > 0.0) {
+        rate_max = std::min(rate_max, limits.v_max);
+    }
+    return rate_max;
+}
+
 } // namespace
+
+void SteeringConfig::Wheel::validate() const
+{
+    if (max_angle <= 0.0) {
+        throw std::invalid_argument("wheel.max_angle must be positive");
+    }
+    if (max_rate <= 0.0) {
+        throw std::invalid_argument("wheel.max_rate must be positive");
+    }
+    if (nudge_angle <= 0.0) {
+        throw std::invalid_argument("wheel.nudge_angle must be positive");
+    }
+    if (centering_stiffness <= 0.0) {
+        throw std::invalid_argument("wheel.centering_stiffness must be positive");
+    }
+    if (centering_deadband < 0.0) {
+        throw std::invalid_argument("wheel.centering_deadband cannot be negative");
+    }
+    if (centering_deadband >= max_angle) {
+        throw std::invalid_argument("wheel.centering_deadband must be smaller than wheel.max_angle");
+    }
+}
+
+void SteeringConfig::Final::validate() const
+{
+    if (max_angle <= min_angle) {
+        throw std::invalid_argument("final.max_angle must be greater than final.min_angle");
+    }
+    if (max_rate <= 0.0) {
+        throw std::invalid_argument("final.max_rate must be positive");
+    }
+    if (actuator_time_constant <= 0.0) {
+        throw std::invalid_argument("final.actuator_time_constant must be positive");
+    }
+    if (smoothing_time_constant < 0.0) {
+        throw std::invalid_argument("final.smoothing_time_constant cannot be negative");
+    }
+}
+
+void SteeringConfig::validate() const
+{
+    wheel.validate();
+    final.validate();
+    if (final.min_angle > -wheel.max_angle || final.max_angle < wheel.max_angle) {
+        throw std::invalid_argument("final angle range must encompass wheel range");
+    }
+}
 
 SteeringConfig SteeringConfig::load_from_file(const std::string& path)
 {
@@ -80,72 +174,73 @@ SteeringWheel::SteeringWheel(const SteeringConfig::Wheel& cfg,
 
 double SteeringWheel::max_left() const
 {
-    double limit = limits_.max;
-    if (cfg_.max_angle > EPS) {
-        limit = std::min(limit, cfg_.max_angle);
+    double limit = cfg_.max_angle;
+    if (limits_.max > 0.0) {
+        limit = std::min(limit, limits_.max);
     }
     return limit;
 }
 
 double SteeringWheel::max_right() const
 {
-    double limit = limits_.min;
-    if (cfg_.max_angle > EPS) {
-        limit = std::max(limit, -cfg_.max_angle);
+    double limit = -cfg_.max_angle;
+    if (limits_.min < 0.0) {
+        limit = std::max(limit, limits_.min);
     }
     return limit;
 }
 
 void SteeringWheel::reset(double angle)
 {
-    target_angle_        = angle;
-    this->angle_         = angle;
-    last_output_.angle   = angle;
-    last_output_.rate    = 0.0;
-    last_output_.target_angle = angle;
+    angle_                   = clamp(angle, max_right(), max_left());
+    last_output_.angle       = angle_;
+    last_output_.rate        = 0.0;
+    last_output_.target_angle = angle_;
 }
 
-SteeringWheel::Output SteeringWheel::update(double input, double dt)
+SteeringWheel::Output SteeringWheel::update(double nudge, double dt)
 {
     if (dt <= 0.0) {
-        return last_output_;
+        throw std::invalid_argument("dt must be positive");
     }
 
-    double clamped_input = std::clamp(input, -1.0, 1.0);
-    double rate_command  = clamped_input * cfg_.max_rate;
+    const double prev_angle = angle_;
+    const double left_limit = max_left();
+    const double right_limit = max_right();
 
-    if (std::abs(clamped_input) < EPS) {
-        const double deviation = target_angle_;
-        if (std::abs(deviation) > cfg_.centering_deadband) {
-            const double error       = std::abs(deviation) - cfg_.centering_deadband;
-            double       return_rate = cfg_.centering_stiffness * error;
-            return_rate             = std::min(return_rate, cfg_.max_rate);
-            rate_command            = -std::copysign(return_rate, deviation);
+    double clamped_nudge = std::clamp(nudge, -1.0, 1.0);
+    double angle = angle_;
+
+    if (std::abs(clamped_nudge) > EPS) {
+        double target = angle + clamped_nudge * cfg_.nudge_angle;
+        target        = clamp(target, right_limit, left_limit);
+        const double max_delta = cfg_.max_rate * dt;
+        const double delta     = clamp(target - angle, -max_delta, max_delta);
+        angle += delta;
+    } else {
+        if (std::abs(angle) <= cfg_.centering_deadband) {
+            angle = 0.0;
         } else {
-            rate_command = 0.0;
+            const double effective = std::copysign(
+                std::max(0.0, std::abs(angle) - cfg_.centering_deadband), angle);
+            double rate = -cfg_.centering_stiffness * effective;
+            rate        = clamp(rate, -cfg_.max_rate, cfg_.max_rate);
+            angle += rate * dt;
+            if (angle == 0.0 || std::copysign(1.0, angle) != std::copysign(1.0, angle_)) {
+                angle = 0.0;
+            }
         }
     }
 
-    target_angle_ += rate_command * dt;
-    target_angle_ = std::clamp(target_angle_, max_right(), max_left());
+    angle_ = clamp(angle, right_limit, left_limit);
 
-    const double prev_angle = angle_;
-    if (cfg_.time_constant <= 0.0) {
-        angle_ = target_angle_;
-    } else {
-        const double alpha = clamp01(dt / std::max(cfg_.time_constant, dt));
-        angle_ += (target_angle_ - angle_) * alpha;
-    }
-
-    const double rate = (angle_ - prev_angle) / dt;
-
-    last_output_.target_angle = target_angle_;
+    last_output_.target_angle = angle_;
     last_output_.angle        = angle_;
-    last_output_.rate         = rate;
+    last_output_.rate         = (angle_ - prev_angle) / dt;
     return last_output_;
 }
 
-FinalSteerController::FinalSteerController(const SteeringConfig::Actuator& cfg,
+FinalSteerController::FinalSteerController(const SteeringConfig::Final& cfg,
                                            const SteeringParameters& limits)
     : cfg_(cfg)
     , limits_(limits)
@@ -155,10 +250,13 @@ FinalSteerController::FinalSteerController(const SteeringConfig::Actuator& cfg,
 
 void FinalSteerController::reset(double current_angle)
 {
-    filtered_target_         = current_angle;
-    last_output_.filtered_target = current_angle;
-    last_output_.angle        = current_angle;
-    last_output_.rate         = 0.0;
+    const double min_angle = combined_min_angle(cfg_, limits_);
+    const double max_angle = combined_max_angle(cfg_, limits_);
+    const double clamped   = clamp(current_angle, min_angle, max_angle);
+    filtered_target_           = clamped;
+    last_output_.filtered_target = clamped;
+    last_output_.angle          = clamped;
+    last_output_.rate           = 0.0;
 }
 
 FinalSteerController::Output FinalSteerController::update(double desired_angle,
@@ -166,50 +264,41 @@ FinalSteerController::Output FinalSteerController::update(double desired_angle,
                                                           double dt)
 {
     if (dt <= 0.0) {
-        return last_output_;
+        throw std::invalid_argument("dt must be positive");
     }
 
-    const double target_limited = std::clamp(desired_angle, limits_.min, limits_.max);
+    const double min_angle = combined_min_angle(cfg_, limits_);
+    const double max_angle = combined_max_angle(cfg_, limits_);
 
-    if (cfg_.time_constant <= 0.0) {
-        filtered_target_ = target_limited;
+    const double desired_clamped  = clamp(desired_angle, min_angle, max_angle);
+    const double measured_clamped = clamp(current_angle, min_angle, max_angle);
+
+    if (cfg_.smoothing_time_constant > 0.0) {
+        const double alpha = clamp01(dt / (cfg_.smoothing_time_constant + dt));
+        filtered_target_ += alpha * (desired_clamped - filtered_target_);
     } else {
-        const double alpha = clamp01(dt / std::max(cfg_.time_constant, dt));
-        filtered_target_ += (target_limited - filtered_target_) * alpha;
+        filtered_target_ = desired_clamped;
     }
+    filtered_target_ = clamp(filtered_target_, min_angle, max_angle);
 
-    double desired_rate;
-    if (cfg_.time_constant <= 0.0) {
-        desired_rate = (target_limited - current_angle) / dt;
-    } else {
-        desired_rate = (filtered_target_ - current_angle) / cfg_.time_constant;
-    }
+    const double tau  = cfg_.actuator_time_constant;
+    double       rate = (filtered_target_ - measured_clamped) / tau;
 
-    double rate_min = limits_.v_min;
-    double rate_max = limits_.v_max;
-    if (rate_min >= rate_max) {
-        const double fallback = std::max(std::abs(rate_min), std::abs(rate_max));
-        rate_min              = -fallback;
-        rate_max              = fallback;
-        if (fallback < EPS) {
-            rate_min = -1.0;
-            rate_max = 1.0;
-        }
-    }
+    const double rate_min = combined_rate_min(cfg_, limits_);
+    const double rate_max = combined_rate_max(cfg_, limits_);
+    rate                   = clamp(rate, rate_min, rate_max);
 
-    double rate = std::clamp(desired_rate, rate_min, rate_max);
-    double next_angle = current_angle + rate * dt;
+    const double max_step = (max_angle - measured_clamped) / dt;
+    const double min_step = (min_angle - measured_clamped) / dt;
+    rate                  = clamp(rate, min_step, max_step);
 
-    if (next_angle > limits_.max) {
-        next_angle = limits_.max;
-        rate       = (next_angle - current_angle) / dt;
-    } else if (next_angle < limits_.min) {
-        next_angle = limits_.min;
-        rate       = (next_angle - current_angle) / dt;
-    }
+    double new_angle = measured_clamped + rate * dt;
+    new_angle        = clamp(new_angle, min_angle, max_angle);
+
+    rate = (new_angle - measured_clamped) / dt;
 
     last_output_.filtered_target = filtered_target_;
-    last_output_.angle           = next_angle;
+    last_output_.angle           = new_angle;
     last_output_.rate            = rate;
     return last_output_;
 }

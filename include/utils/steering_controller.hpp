@@ -12,17 +12,27 @@ struct SteeringConfig {
     struct Wheel {
         double max_angle{0.0};
         double max_rate{0.0};
-        double time_constant{0.0};
+        double nudge_angle{0.0};
         double centering_stiffness{0.0};
         double centering_deadband{0.0};
+
+        void validate() const;
     };
 
-    struct Actuator {
-        double time_constant{0.0};
+    struct Final {
+        double min_angle{0.0};
+        double max_angle{0.0};
+        double max_rate{0.0};
+        double actuator_time_constant{0.0};
+        double smoothing_time_constant{0.0};
+
+        void validate() const;
     };
 
-    Wheel    wheel{};
-    Actuator actuator{};
+    Wheel wheel{};
+    Final final{};
+
+    void validate() const;
 
     static SteeringConfig load_from_file(const std::string& path);
     static SteeringConfig load_default();
@@ -40,7 +50,7 @@ public:
         double rate{0.0};
     };
 
-    Output update(double input, double dt);
+    Output update(double nudge, double dt);
     void   reset(double angle = 0.0);
 
     const Output& last_output() const { return last_output_; }
@@ -48,7 +58,6 @@ public:
 private:
     SteeringConfig::Wheel cfg_{};
     SteeringParameters    limits_{};
-    double                target_angle_{0.0};
     double                angle_{0.0};
     Output                last_output_{};
 
@@ -59,7 +68,7 @@ private:
 class FinalSteerController {
 public:
     FinalSteerController() = default;
-    FinalSteerController(const SteeringConfig::Actuator& cfg,
+    FinalSteerController(const SteeringConfig::Final& cfg,
                          const SteeringParameters& limits);
 
     struct Output {
@@ -74,7 +83,7 @@ public:
     const Output& last_output() const { return last_output_; }
 
 private:
-    SteeringConfig::Actuator cfg_{};
+    SteeringConfig::Final cfg_{};
     SteeringParameters       limits_{};
     double                   filtered_target_{0.0};
     Output                   last_output_{};
