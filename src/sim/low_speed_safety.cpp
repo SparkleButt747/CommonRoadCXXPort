@@ -69,9 +69,7 @@ void LowSpeedSafety::apply(std::vector<double>& state, double speed, bool update
         }
     }
 
-    if (!update_latch) {
-        return;
-    }
+    const bool latch_active = engaged_;
 
     const auto yaw_target = kinematic_yaw_rate(state, speed);
     const auto slip_target = kinematic_slip(state, speed);
@@ -89,7 +87,7 @@ void LowSpeedSafety::apply(std::vector<double>& state, double speed, bool update
 
     if (yaw_rate_index_ && index_in_bounds(*yaw_rate_index_, state)) {
         const std::size_t idx = static_cast<std::size_t>(*yaw_rate_index_);
-        if (engaged_) {
+        if (latch_active) {
             const double limit = config_.yaw_rate_limit;
             const double target = yaw_target.value_or(0.0);
             state[idx] = clamp(target, -limit, limit);
@@ -102,7 +100,7 @@ void LowSpeedSafety::apply(std::vector<double>& state, double speed, bool update
     if (lateral_index_ && index_in_bounds(*lateral_index_, state)) {
         const std::size_t idx = static_cast<std::size_t>(*lateral_index_);
         double value = state[idx];
-        if (engaged_) {
+        if (latch_active) {
             if (lateral_target.has_value()) {
                 state[idx] = *lateral_target;
             } else {
@@ -116,7 +114,7 @@ void LowSpeedSafety::apply(std::vector<double>& state, double speed, bool update
 
     if (slip_index_ && index_in_bounds(*slip_index_, state)) {
         const std::size_t idx = static_cast<std::size_t>(*slip_index_);
-        if (engaged_) {
+        if (latch_active) {
             const double limit = config_.slip_angle_limit;
             const double target = slip_target.value_or(0.0);
             state[idx] = clamp(target, -limit, limit);
@@ -135,7 +133,7 @@ void LowSpeedSafety::apply(std::vector<double>& state, double speed, bool update
             double value = state[idx];
             if (value <= 0.0) {
                 state[idx] = 0.0;
-            } else if (engaged_ && value <= config_.stop_speed_epsilon) {
+            } else if (update_latch && latch_active && value <= config_.stop_speed_epsilon) {
                 state[idx] = 0.0;
             }
         }
