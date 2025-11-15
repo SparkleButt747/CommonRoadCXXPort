@@ -44,6 +44,8 @@ public:
     void set_dt(double dt);
     double dt() const { return dt_; }
 
+    void seed_state(const std::vector<double>& state);
+
     LowSpeedSafety& safety() { return safety_; }
     const LowSpeedSafety& safety() const { return safety_; }
 

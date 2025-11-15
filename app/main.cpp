@@ -4,8 +4,11 @@
 #include <cmath>
 #include <cstdio>
 #include <exception>
+#include <iomanip>
+#include <limits>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -51,6 +54,7 @@
 #include "sim/longitudinal/config_loader.hpp"
 #include "sim/longitudinal/final_accel_controller.hpp"
 #include "sim/low_speed_safety_loader.hpp"
+#include "sim/model_timing.hpp"
 #include "sim/vehicle_simulator.hpp"
 
 namespace vm     = vehiclemodels;
@@ -58,18 +62,7 @@ namespace vutils = vehiclemodels::utils;
 namespace longi  = vehiclemodels::sim::longitudinal;
 namespace vsim   = vehiclemodels::sim;
 
-// --------------------------------------------------------------
-// Simulation model dispatch
-// --------------------------------------------------------------
-
-enum class ModelType {
-    KS_REAR = 0,
-    KS_COG  = 1,
-    KST     = 2,
-    MB      = 3,
-    ST      = 4,
-    STD     = 5
-};
+using ModelType = vsim::ModelType;
 
 struct Simulation {
     ModelType                               model;
@@ -81,6 +74,72 @@ struct Simulation {
     float                                   dt;    // integration step [s]
     std::unique_ptr<vsim::VehicleSimulator> integrator;
 };
+
+static constexpr float kSliderMinDt = vsim::kMinStableDt;
+static constexpr float kSliderMaxDt = 0.05f;
+static constexpr double kDtRebuildRatio = 2.0;
+
+static bool enforce_model_dt_limits(Simulation& sim, ModelType model)
+{
+    const auto timing = vsim::model_timing(model);
+    const float clamped = std::clamp(sim.dt, kSliderMinDt, timing.max_dt);
+    const bool changed  = std::abs(clamped - sim.dt) > 1e-9f;
+    if (changed) {
+        sim.dt = clamped;
+    }
+    return changed;
+}
+
+static void reconfigure_simulator_dt(Simulation& sim,
+                                     const vsim::LowSpeedSafetyConfig& safety_cfg)
+{
+    if (!sim.integrator) {
+        return;
+    }
+
+    const double new_dt     = static_cast<double>(sim.dt);
+    const double current_dt = sim.integrator->dt();
+    const double diff       = std::abs(current_dt - new_dt);
+    if (diff < 1e-9) {
+        return;
+    }
+
+    const double ratio = (current_dt > 0.0)
+        ? std::max(current_dt, new_dt) / std::min(current_dt, new_dt)
+        : std::numeric_limits<double>::infinity();
+
+    if (ratio >= kDtRebuildRatio) {
+        std::vector<double> snapshot = sim.integrator->state();
+        auto iface  = build_model_interface(sim.model);
+        auto safety = build_low_speed_safety(sim.model, sim.params, safety_cfg);
+        auto new_integrator = std::make_unique<vsim::VehicleSimulator>(
+            std::move(iface),
+            sim.params,
+            new_dt,
+            std::move(safety));
+        new_integrator->seed_state(snapshot);
+        sim.integrator = std::move(new_integrator);
+    } else {
+        sim.integrator->set_dt(new_dt);
+    }
+
+    sim.x = sim.integrator->state();
+}
+
+static void set_dt_warning(std::string& message,
+                           double& expires_at,
+                           double now_seconds,
+                           ModelType model,
+                           float requested_dt,
+                           float safe_max_dt)
+{
+    std::ostringstream oss;
+    oss << vsim::model_display_name(model) << " is validated up to "
+        << std::fixed << std::setprecision(3) << safe_max_dt
+        << " s; clamped requested " << requested_dt << " s to stay stable.";
+    message     = oss.str();
+    expires_at  = now_seconds + 4.0;
+}
 
 // load parameters by id
 static vm::VehicleParameters load_vehicle_params(int id, const std::string& root = {})
@@ -619,6 +678,9 @@ int main(int, char**)
     int currentVehicleIdx  = 0; // 0..3 -> IDs 1..4
     const int vehicle_ids[4] = {1, 2, 3, 4};
     std::string param_root;
+    enforce_model_dt_limits(sim, currentModel);
+    std::string dt_warning_message;
+    double dt_warning_expires = 0.0;
 
     vsim::LowSpeedSafetyConfig low_speed_cfg{};
     try {
@@ -804,6 +866,7 @@ int main(int, char**)
         ImGui_ImplSDLRenderer2_NewFrame();
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
+        const double now_seconds = static_cast<double>(SDL_GetTicks64()) * 0.001;
 
         {
             ImGui::Begin("Simulation Control");
@@ -822,6 +885,18 @@ int main(int, char**)
             };
             if (ImGui::Combo("Model", &model_idx, model_items, IM_ARRAYSIZE(model_items))) {
                 currentModel = static_cast<ModelType>(model_idx);
+                const auto timing = vsim::model_timing(currentModel);
+                const float requested_dt = sim.dt;
+                const bool dt_was_above_max = requested_dt > timing.max_dt + 1e-6f;
+                const bool dt_adjusted = enforce_model_dt_limits(sim, currentModel);
+                if (dt_adjusted && dt_was_above_max) {
+                    set_dt_warning(dt_warning_message,
+                                   dt_warning_expires,
+                                   now_seconds,
+                                   currentModel,
+                                   requested_dt,
+                                   timing.max_dt);
+                }
                 reset_simulation(sim, currentModel, vehicle_ids[currentVehicleIdx], low_speed_cfg, param_root);
                 try {
                     sync_controllers();
@@ -850,10 +925,32 @@ int main(int, char**)
                 prev_counter = SDL_GetPerformanceCounter();
             }
 
-            if (ImGui::SliderFloat("dt [s]", &sim.dt, 0.001f, 0.05f, "%.3f")) {
-                if (sim.integrator) {
-                    sim.integrator->set_dt(static_cast<double>(sim.dt));
+            const auto timing = vsim::model_timing(currentModel);
+            ImGui::Text("Nominal dt: %.3f s (max %.3f s)", timing.nominal_dt, timing.max_dt);
+            float slider_dt = sim.dt;
+            if (ImGui::SliderFloat("dt [s]", &slider_dt, kSliderMinDt, kSliderMaxDt, "%.3f")) {
+                const float requested_dt = slider_dt;
+                bool exceeded_max        = false;
+                if (slider_dt > timing.max_dt) {
+                    slider_dt    = timing.max_dt;
+                    exceeded_max = true;
                 }
+                if (slider_dt < kSliderMinDt) {
+                    slider_dt = kSliderMinDt;
+                }
+                sim.dt = slider_dt;
+                reconfigure_simulator_dt(sim, low_speed_cfg);
+                if (exceeded_max) {
+                    set_dt_warning(dt_warning_message,
+                                   dt_warning_expires,
+                                   now_seconds,
+                                   currentModel,
+                                   requested_dt,
+                                   timing.max_dt);
+                }
+            }
+            if (dt_warning_expires > now_seconds) {
+                ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.2f, 1.0f), "%s", dt_warning_message.c_str());
             }
 
             ImGui::Separator();

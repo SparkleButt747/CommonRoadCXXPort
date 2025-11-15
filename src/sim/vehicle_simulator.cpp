@@ -85,6 +85,13 @@ void VehicleSimulator::set_dt(double dt)
     dt_ = dt;
 }
 
+void VehicleSimulator::seed_state(const std::vector<double>& state)
+{
+    state_ = state;
+    apply_safety(state_, true);
+    ready_ = true;
+}
+
 void VehicleSimulator::ensure_ready() const
 {
     if (!ready_) {
