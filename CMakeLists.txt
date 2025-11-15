@@ -247,6 +247,15 @@ if(BUILD_COMMONROAD_TESTS)
     )
     add_test(NAME test_low_speed_safety COMMAND test_low_speed_safety)
 
+    add_executable(test_timestep_bounds
+        tests/test_timestep_bounds.cpp
+    )
+    target_link_libraries(test_timestep_bounds
+        PRIVATE
+            commonroad
+    )
+    add_test(NAME test_timestep_bounds COMMAND test_timestep_bounds)
+
     add_executable(scenario_simulator
         tests/scenario_simulator.cpp
     )
