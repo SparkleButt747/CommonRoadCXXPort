@@ -780,6 +780,7 @@ int main(int, char**)
     bool running = true;
     Uint64 prev_counter = SDL_GetPerformanceCounter();
     double sim_time = 0.0;
+    float keyboard_brake_bias = 1.0f;
 
     while (running) {
         bool request_reset = false;
@@ -822,7 +823,8 @@ int main(int, char**)
         double throttle_cmd = 0.0;
         double brake_cmd    = 0.0;
         if (keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_UP])    throttle_cmd = 1.0;
-        if (keys[SDL_SCANCODE_S] || keys[SDL_SCANCODE_DOWN])  brake_cmd = std::max(brake_cmd, 0.5);
+        if (keys[SDL_SCANCODE_S] || keys[SDL_SCANCODE_DOWN])
+            brake_cmd = std::max(brake_cmd, static_cast<double>(keyboard_brake_bias));
         if (keys[SDL_SCANCODE_SPACE])                          brake_cmd = 1.0;
         throttle_cmd = std::clamp(throttle_cmd, 0.0, 1.0);
         brake_cmd    = std::clamp(brake_cmd, 0.0, 1.0);
@@ -877,6 +879,17 @@ int main(int, char**)
             ImGui::Begin("Simulation Control");
 
             ImGui::Text("Time: %.2f s", sim_time);
+            ImGui::Separator();
+
+            ImGui::Text("Keyboard controls");
+            ImGui::Text("W/Up: throttle  A/D or ←/→: steer  R: reset  ESC: quit");
+            if (ImGui::SliderFloat("Keyboard brake bias", &keyboard_brake_bias, 0.0f, 1.0f, "%.2f")) {
+                keyboard_brake_bias = std::clamp(keyboard_brake_bias, 0.0f, 1.0f);
+            }
+            ImGui::TextWrapped(
+                "S/Down applies %.0f%%%% braking using the bias slider for proportional stops."
+                " Hold SPACE to request 100%%%% emergency braking.",
+                keyboard_brake_bias * 100.0f);
             ImGui::Separator();
 
             int model_idx = static_cast<int>(currentModel);

@@ -51,11 +51,16 @@ void FinalAccelController::apply_actuator_dynamics(const DriverIntent& intent, d
     const double throttle_target = std::clamp(intent.throttle, 0.0, 1.0);
     const double brake_target    = std::clamp(intent.brake, 0.0, 1.0);
 
-    throttle_ += dt / tau_throttle * (throttle_target - throttle_);
-    brake_ += dt / tau_brake * (brake_target - brake_);
+    if (brake_target > 0.0) {
+        // Brake-throttle override: dump stored throttle when braking.
+        throttle_ = 0.0;
+    } else {
+        throttle_ += dt / tau_throttle * (throttle_target - throttle_);
+        throttle_ = std::clamp(throttle_, 0.0, 1.0);
+    }
 
-    throttle_ = std::clamp(throttle_, 0.0, 1.0);
-    brake_    = std::clamp(brake_, 0.0, 1.0);
+    brake_ += dt / tau_brake * (brake_target - brake_);
+    brake_ = std::clamp(brake_, 0.0, 1.0);
 }
 
 ControllerOutput FinalAccelController::step(const DriverIntent& intent, double speed, double dt)
