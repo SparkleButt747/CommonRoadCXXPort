@@ -1,7 +1,11 @@
 // app/main.cpp
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <exception>
+#include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -31,17 +35,28 @@
 #include "vehicle/parameters_vehicle4.hpp"
 
 #include "vehiclemodels/vehicle_dynamics_ks.hpp"
+#include "vehiclemodels/vehicle_dynamics_kst.hpp"
+#include "vehiclemodels/vehicle_dynamics_mb.hpp"
 #include "vehiclemodels/vehicle_dynamics_st.hpp"
 #include "vehiclemodels/vehicle_dynamics_std.hpp"
 #include "utils/vehicle_dynamics_ks_cog.hpp"
 #include "utils/steering_controller.hpp"
 
 #include "vehiclemodels/init_ks.hpp"
+#include "vehiclemodels/init_kst.hpp"
+#include "vehiclemodels/init_mb.hpp"
 #include "vehiclemodels/init_st.hpp"
 #include "vehiclemodels/init_std.hpp"
 
-namespace vm = vehiclemodels;
+#include "sim/longitudinal/config_loader.hpp"
+#include "sim/longitudinal/final_accel_controller.hpp"
+#include "sim/low_speed_safety_loader.hpp"
+#include "sim/vehicle_simulator.hpp"
+
+namespace vm     = vehiclemodels;
 namespace vutils = vehiclemodels::utils;
+namespace longi  = vehiclemodels::sim::longitudinal;
+namespace vsim   = vehiclemodels::sim;
 
 // --------------------------------------------------------------
 // Simulation model dispatch
@@ -50,17 +65,20 @@ namespace vutils = vehiclemodels::utils;
 enum class ModelType {
     KS_REAR = 0,
     KS_COG  = 1,
-    ST      = 2,
-    STD     = 3
+    KST     = 2,
+    MB      = 3,
+    ST      = 4,
+    STD     = 5
 };
 
 struct Simulation {
-    ModelType             model;
-    int                   vehicle_id;
-    vm::VehicleParameters params;
-    std::vector<double>   x;     // state
-    std::vector<double>   u;     // input [steer_rate, accel]
-    float                 dt;    // integration step [s]
+    ModelType                               model;
+    int                                     vehicle_id;
+    vm::VehicleParameters                   params;
+    std::vector<double>                     x;     // state
+    std::vector<double>                     u;     // input [steer_rate, accel]
+    float                                   dt;    // integration step [s]
+    std::unique_ptr<vsim::VehicleSimulator> integrator;
 };
 
 // load parameters by id
@@ -76,34 +94,174 @@ static vm::VehicleParameters load_vehicle_params(int id, const std::string& root
     }
 }
 
-// compute RHS for current model
-static std::vector<double> compute_rhs(const Simulation& sim)
+static vsim::ModelInterface build_model_interface(ModelType model)
 {
-    switch (sim.model) {
+    vsim::ModelInterface iface{};
+    switch (model) {
         case ModelType::KS_REAR:
-            return vm::vehicle_dynamics_ks(sim.x, sim.u, sim.params);
+            iface.dynamics_fn = [](const std::vector<double>& x,
+                                   const std::vector<double>& u,
+                                   const vm::VehicleParameters& params) {
+                return vm::vehicle_dynamics_ks(x, u, params);
+            };
+            iface.speed_fn = [](const std::vector<double>& state,
+                                const vm::VehicleParameters&) {
+                return (state.size() > 3) ? std::abs(state[3]) : 0.0;
+            };
+            break;
 
-        case ModelType::KS_COG: {
-            std::array<double, 5> x_arr{};
-            std::array<double, 2> u_arr{};
-            for (int i = 0; i < 5; ++i) x_arr[i] = sim.x[i];
-            u_arr[0] = sim.u[0];
-            u_arr[1] = sim.u[1];
-            auto f_arr = vm::utils::vehicle_dynamics_ks_cog(x_arr, u_arr, sim.params);
-            std::vector<double> f(5);
-            for (int i = 0; i < 5; ++i) f[i] = f_arr[i];
-            return f;
-        }
+        case ModelType::KS_COG:
+            iface.dynamics_fn = [](const std::vector<double>& x,
+                                   const std::vector<double>& u,
+                                   const vm::VehicleParameters& params) {
+                std::array<double, 5> x_arr{};
+                std::array<double, 2> u_arr{};
+                for (std::size_t i = 0; i < x_arr.size(); ++i) {
+                    x_arr[i] = (i < x.size()) ? x[i] : 0.0;
+                }
+                if (!u.empty()) {
+                    u_arr[0] = u[0];
+                }
+                if (u.size() > 1) {
+                    u_arr[1] = u[1];
+                }
+                auto result = vm::utils::vehicle_dynamics_ks_cog(x_arr, u_arr, params);
+                return std::vector<double>(result.begin(), result.end());
+            };
+            iface.speed_fn = [](const std::vector<double>& state,
+                                const vm::VehicleParameters&) {
+                return (state.size() > 3) ? std::abs(state[3]) : 0.0;
+            };
+            break;
+
+        case ModelType::KST:
+            iface.dynamics_fn = [](const std::vector<double>& x,
+                                   const std::vector<double>& u,
+                                   const vm::VehicleParameters& params) {
+                return vm::vehicle_dynamics_kst(x, u, params);
+            };
+            iface.speed_fn = [](const std::vector<double>& state,
+                                const vm::VehicleParameters&) {
+                return (state.size() > 3) ? std::abs(state[3]) : 0.0;
+            };
+            break;
+
+        case ModelType::MB:
+            iface.dynamics_fn = [](const std::vector<double>& x,
+                                   const std::vector<double>& u,
+                                   const vm::VehicleParameters& params) {
+                return vm::vehicle_dynamics_mb(x, u, params);
+            };
+            iface.speed_fn = [](const std::vector<double>& state,
+                                const vm::VehicleParameters&) {
+                if (state.size() > 10) {
+                    return std::hypot(state[3], state[10]);
+                }
+                if (state.size() > 3) {
+                    return std::abs(state[3]);
+                }
+                return 0.0;
+            };
+            break;
 
         case ModelType::ST:
-            return vm::vehicle_dynamics_st(sim.x, sim.u, sim.params);
+            iface.dynamics_fn = [](const std::vector<double>& x,
+                                   const std::vector<double>& u,
+                                   const vm::VehicleParameters& params) {
+                return vm::vehicle_dynamics_st(x, u, params);
+            };
+            iface.speed_fn = [](const std::vector<double>& state,
+                                const vm::VehicleParameters&) {
+                return (state.size() > 3) ? std::abs(state[3]) : 0.0;
+            };
+            break;
 
         case ModelType::STD:
-            return vm::vehicle_dynamics_std(sim.x, sim.u, sim.params);
+            iface.dynamics_fn = [](const std::vector<double>& x,
+                                   const std::vector<double>& u,
+                                   const vm::VehicleParameters& params) {
+                return vm::vehicle_dynamics_std(x, u, params);
+            };
+            iface.speed_fn = [](const std::vector<double>& state,
+                                const vm::VehicleParameters&) {
+                return (state.size() > 3) ? std::abs(state[3]) : 0.0;
+            };
+            break;
     }
-    return {};
+
+    if (!iface.valid()) {
+        throw std::runtime_error("Unsupported model type for simulator");
+    }
+    return iface;
 }
 
+static vsim::LowSpeedSafety build_low_speed_safety(ModelType model,
+                                                   const vm::VehicleParameters& params,
+                                                   const vsim::LowSpeedSafetyConfig& cfg)
+{
+    std::optional<int> longitudinal;
+    std::optional<int> lateral;
+    std::optional<int> yaw_rate;
+    std::optional<int> slip;
+    std::vector<int>   wheel_indices;
+    std::optional<int> steering;
+
+    switch (model) {
+        case ModelType::KS_REAR:
+        case ModelType::KS_COG:
+        case ModelType::KST:
+            longitudinal = 3;
+            steering     = 2;
+            break;
+
+        case ModelType::ST:
+            longitudinal = 3;
+            yaw_rate     = 5;
+            slip         = 6;
+            steering     = 2;
+            break;
+
+        case ModelType::STD:
+            longitudinal = 3;
+            yaw_rate     = 5;
+            slip         = 6;
+            wheel_indices = {7, 8};
+            steering      = 2;
+            break;
+
+        case ModelType::MB:
+            longitudinal = 3;
+            lateral      = 10;
+            yaw_rate     = 5;
+            wheel_indices = {23, 24, 25, 26};
+            steering      = 2;
+            break;
+    }
+
+    std::optional<double> wheelbase;
+    std::optional<double> rear_length;
+    if (std::isfinite(params.a) && std::isfinite(params.b)) {
+        const double wb = params.a + params.b;
+        if (wb > 0.0) {
+            wheelbase = wb;
+        }
+    }
+    if (std::isfinite(params.b) && params.b > 0.0) {
+        rear_length = params.b;
+    }
+
+    return vsim::LowSpeedSafety(cfg,
+                                longitudinal,
+                                lateral,
+                                yaw_rate,
+                                slip,
+                                wheel_indices,
+                                steering,
+                                wheelbase,
+                                rear_length);
+}
+
+// compute RHS for current model
 // --------------------------------------------------------------
 // Telemetry
 // --------------------------------------------------------------
@@ -122,56 +280,104 @@ static Telemetry compute_telemetry(const Simulation& sim)
 {
     Telemetry t{};
 
-    const double L     = sim.params.a + sim.params.b;
-    const double delta = (sim.x.size() > 2) ? sim.x[2] : 0.0;
+    const double wheelbase = sim.params.a + sim.params.b;
+    const double delta     = (sim.x.size() > 2) ? sim.x[2] : 0.0;
 
-    double v    = 0.0;
-    double beta = 0.0;
-    double yaw  = 0.0;
+    double v_long = 0.0;
+    double v_lat  = 0.0;
+    double yaw    = 0.0;
+    double beta   = 0.0;
 
     switch (sim.model) {
         case ModelType::KS_REAR:
         case ModelType::KS_COG:
+        case ModelType::KST:
             if (sim.x.size() >= 5) {
-                v   = sim.x[3];
-                yaw = sim.x[4];
+                v_long = sim.x[3];
+                yaw    = sim.x[4];
             }
             beta = 0.0;
             break;
 
         case ModelType::ST:
             if (sim.x.size() >= 7) {
-                v    = sim.x[3];
-                yaw  = sim.x[4];
-                beta = sim.x[6];
+                v_long = sim.x[3];
+                yaw    = sim.x[4];
+                beta   = sim.x[6];
             }
             break;
 
         case ModelType::STD:
             if (sim.x.size() >= 9) {
-                v    = sim.x[3];
-                yaw  = sim.x[4];
-                beta = sim.x[6];
+                v_long = sim.x[3];
+                yaw    = sim.x[4];
+                beta   = sim.x[6];
+            }
+            break;
+
+        case ModelType::MB:
+            if (sim.x.size() >= 11) {
+                v_long = sim.x[3];
+                v_lat  = sim.x[10];
+                yaw    = sim.x[4];
+            }
+            if (std::abs(v_long) > 1e-6 || std::abs(v_lat) > 1e-6) {
+                beta = std::atan2(v_lat, v_long);
             }
             break;
     }
 
-    t.speed  = v;
-    t.v_long = v * std::cos(beta);
-    t.v_lat  = v * std::sin(beta);
+    const double speed = std::hypot(v_long, v_lat);
+    t.speed            = speed;
+    t.v_long           = v_long;
+    t.v_lat            = v_lat;
 
     const double heading = yaw + beta;
-    t.v_global_x = v * std::cos(heading);
-    t.v_global_y = v * std::sin(heading);
+    t.v_global_x        = speed * std::cos(heading);
+    t.v_global_y        = speed * std::sin(heading);
 
-    t.a_long = (sim.u.size() > 1) ? sim.u[1] : 0.0;
-    if (L > 0.0) {
-        t.a_lat = v * v * std::tan(delta) / L;
+    if (sim.u.size() > 1) {
+        t.a_long = sim.u[1];
     } else {
-        t.a_lat = 0.0;
+        t.a_long = 0.0;
+    }
+
+    switch (sim.model) {
+        case ModelType::MB:
+            if (sim.x.size() > 5) {
+                t.a_lat = v_long * sim.x[5];
+            }
+            break;
+        default:
+            if (wheelbase > 0.0) {
+                t.a_lat = v_long * v_long * std::tan(delta) / wheelbase;
+            } else {
+                t.a_lat = 0.0;
+            }
+            break;
     }
 
     return t;
+}
+
+static double simulation_speed(const Simulation& sim)
+{
+    if (sim.integrator) {
+        return sim.integrator->speed();
+    }
+    switch (sim.model) {
+        case ModelType::MB:
+            if (sim.x.size() > 10) {
+                return std::hypot(sim.x[3], sim.x[10]);
+            }
+            break;
+        default:
+            if (sim.x.size() > 3) {
+                return std::abs(sim.x[3]);
+            }
+            break;
+    }
+    return 0.0;
 }
 
 // --------------------------------------------------------------
@@ -183,16 +389,33 @@ struct Vec2 {
     double y;
 };
 
+struct Pose {
+    double x = 0.0;
+    double y = 0.0;
+    double yaw = 0.0;
+};
+
+static Pose extract_pose(const Simulation& sim)
+{
+    Pose pose{};
+    if (sim.x.size() >= 5) {
+        pose.x   = sim.x[0];
+        pose.y   = sim.x[1];
+        pose.yaw = sim.x[4];
+    }
+    return pose;
+}
+
 static void draw_car(SDL_Renderer* renderer,
                      const Simulation& sim,
                      int window_w, int window_h,
                      double pixels_per_meter)
 {
-    if (sim.x.size() < 5) return;
+    const Pose pose = extract_pose(sim);
 
-    const double x_world = sim.x[0];
-    const double y_world = sim.x[1];
-    const double yaw     = sim.x[4];
+    const double x_world = pose.x;
+    const double y_world = pose.y;
+    const double yaw     = pose.yaw;
 
     double L = sim.params.l;
     double W = sim.params.w;
@@ -245,12 +468,14 @@ static void draw_car(SDL_Renderer* renderer,
 static void reset_simulation(Simulation& sim,
                              ModelType model,
                              int vehicle_id,
+                             const vsim::LowSpeedSafetyConfig& safety_cfg,
                              const std::string& param_root = {})
 {
     sim.model      = model;
     sim.vehicle_id = vehicle_id;
     sim.params     = load_vehicle_params(vehicle_id, param_root);
     sim.u.assign(2, 0.0);
+    sim.integrator.reset();
 
     // core init state: [sx, sy, delta, v, psi, dotPsi, beta]
     std::vector<double> core{
@@ -268,6 +493,12 @@ static void reset_simulation(Simulation& sim,
         case ModelType::KS_COG:
             sim.x = vm::init_ks(core);          // length 5
             break;
+        case ModelType::KST:
+            sim.x = vm::init_kst(core, 0.0);    // length 6
+            break;
+        case ModelType::MB:
+            sim.x = vm::init_mb(core, sim.params); // length 29
+            break;
         case ModelType::ST:
             sim.x = vm::init_st(core);          // length 7
             break;
@@ -275,6 +506,16 @@ static void reset_simulation(Simulation& sim,
             sim.x = vm::init_std(core, sim.params); // length 9
             break;
     }
+
+    auto iface  = build_model_interface(model);
+    auto safety = build_low_speed_safety(model, sim.params, safety_cfg);
+    sim.integrator = std::make_unique<vsim::VehicleSimulator>(
+        std::move(iface),
+        sim.params,
+        static_cast<double>(sim.dt),
+        std::move(safety));
+    sim.integrator->reset(sim.x);
+    sim.x = sim.integrator->state();
 }
 
 // --------------------------------------------------------------
@@ -323,6 +564,19 @@ int main(int, char**)
     ImGui_ImplSDL2_InitForSDLRenderer(window, renderer);
     ImGui_ImplSDLRenderer2_Init(renderer);
 
+    auto shutdown_with_message = [&](const char* msg) -> int {
+        if (msg) {
+            std::fprintf(stderr, "Error: %s\n", msg);
+        }
+        ImGui_ImplSDLRenderer2_Shutdown();
+        ImGui_ImplSDL2_Shutdown();
+        ImGui::DestroyContext();
+        SDL_DestroyRenderer(renderer);
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+        return 1;
+    };
+
     // Simulation setup
     Simulation sim{};
     sim.dt = 0.01f;
@@ -332,23 +586,72 @@ int main(int, char**)
     const int vehicle_ids[4] = {1, 2, 3, 4};
     std::string param_root;
 
-    reset_simulation(sim, currentModel, vehicle_ids[currentVehicleIdx], param_root);
+    vsim::LowSpeedSafetyConfig low_speed_cfg{};
+    try {
+        low_speed_cfg = vsim::load_default_low_speed_safety_config();
+    } catch (const std::exception& e) {
+        return shutdown_with_message(e.what());
+    }
+
+    reset_simulation(sim, currentModel, vehicle_ids[currentVehicleIdx], low_speed_cfg, param_root);
 
     vutils::SteeringConfig steering_config;
     try {
         steering_config = vutils::SteeringConfig::load_default();
     } catch (const std::exception& e) {
-        std::fprintf(stderr, "Error: %s\n", e.what());
-        SDL_DestroyRenderer(renderer);
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return 1;
+        return shutdown_with_message(e.what());
     }
 
     vutils::SteeringWheel         steering_wheel;
     vutils::FinalSteerController  steer_controller;
     vutils::SteeringWheel::Output wheel_state{};
     vutils::FinalSteerController::Output steer_state{};
+
+    longi::PowertrainConfig           powertrain_cfg;
+    longi::AeroConfig                 aero_cfg;
+    longi::RollingResistanceConfig    rolling_cfg;
+    longi::BrakeConfig                brake_cfg;
+    longi::FinalAccelControllerConfig accel_cfg;
+
+    try {
+        powertrain_cfg = longi::load_default_powertrain_config();
+        aero_cfg       = longi::load_default_aero_config();
+        rolling_cfg    = longi::load_default_rolling_resistance_config();
+        brake_cfg      = longi::load_default_brake_config();
+        accel_cfg      = longi::load_default_final_accel_controller_config();
+    } catch (const std::exception& e) {
+        return shutdown_with_message(e.what());
+    }
+
+    accel_cfg.stop_speed_epsilon = low_speed_cfg.stop_speed_epsilon;
+
+    auto build_accel_controller = [&]() {
+        const double mass         = sim.params.m;
+        const double wheel_radius = sim.params.R_w;
+        if (!std::isfinite(mass) || mass <= 0.0) {
+            throw std::runtime_error("Vehicle parameters must provide positive mass 'm'");
+        }
+        if (!std::isfinite(wheel_radius) || wheel_radius <= 0.0) {
+            throw std::runtime_error("Vehicle parameters must provide positive wheel radius 'R_w'");
+        }
+        return std::make_unique<longi::FinalAccelController>(
+            mass,
+            wheel_radius,
+            powertrain_cfg,
+            aero_cfg,
+            rolling_cfg,
+            brake_cfg,
+            accel_cfg);
+    };
+
+    std::unique_ptr<longi::FinalAccelController> accel_controller;
+    try {
+        accel_controller = build_accel_controller();
+        accel_controller->reset();
+    } catch (const std::exception& e) {
+        return shutdown_with_message(e.what());
+    }
+    longi::ControllerOutput accel_output{};
 
     auto sync_controllers = [&]() {
         steering_wheel = vutils::SteeringWheel(steering_config.wheel, sim.params.steering);
@@ -360,9 +663,18 @@ int main(int, char**)
         steer_controller.reset(current_angle);
         wheel_state = steering_wheel.last_output();
         steer_state = steer_controller.last_output();
+        if (accel_controller) {
+            accel_controller = build_accel_controller();
+            accel_controller->reset();
+        }
+        accel_output = longi::ControllerOutput{};
     };
 
-    sync_controllers();
+    try {
+        sync_controllers();
+    } catch (const std::exception& e) {
+        return shutdown_with_message(e.what());
+    }
 
     bool running = true;
     Uint64 prev_counter = SDL_GetPerformanceCounter();
@@ -386,8 +698,12 @@ int main(int, char**)
         const Uint8* keys = SDL_GetKeyboardState(nullptr);
 
         double throttle_cmd = 0.0;
-        if (keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_UP])    throttle_cmd += 1.0;
-        if (keys[SDL_SCANCODE_S] || keys[SDL_SCANCODE_DOWN])  throttle_cmd -= 1.0;
+        double brake_cmd    = 0.0;
+        if (keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_UP])    throttle_cmd = 1.0;
+        if (keys[SDL_SCANCODE_S] || keys[SDL_SCANCODE_DOWN])  brake_cmd = std::max(brake_cmd, 0.5);
+        if (keys[SDL_SCANCODE_SPACE])                          brake_cmd = 1.0;
+        throttle_cmd = std::clamp(throttle_cmd, 0.0, 1.0);
+        brake_cmd    = std::clamp(brake_cmd, 0.0, 1.0);
 
         double steer_nudge = 0.0;
         if (keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_LEFT])  steer_nudge += 1.0;
@@ -395,21 +711,32 @@ int main(int, char**)
         if (steer_nudge > 1.0) steer_nudge = 1.0;
         if (steer_nudge < -1.0) steer_nudge = -1.0;
 
-        const double MAX_ACCEL = 4.0;
-
         wheel_state = steering_wheel.update(steer_nudge, sim.dt);
         const double current_delta = (sim.x.size() > 2) ? sim.x[2] : wheel_state.angle;
         steer_state = steer_controller.update(wheel_state.angle, current_delta, sim.dt);
-
-        sim.u[1] = throttle_cmd * MAX_ACCEL;
         sim.u[0] = steer_state.rate;
 
-        // integrate one step
-        auto f = compute_rhs(sim);
-        if (f.size() == sim.x.size()) {
-            for (std::size_t i = 0; i < sim.x.size(); ++i) {
-                sim.x[i] += f[i] * sim.dt;
-            }
+        const double speed = simulation_speed(sim);
+        if (accel_controller) {
+            longi::DriverIntent intent{};
+            intent.throttle = throttle_cmd;
+            intent.brake    = brake_cmd;
+            accel_output    = accel_controller->step(intent, speed, sim.dt);
+            sim.u[1]        = accel_output.acceleration;
+        } else {
+            const double accel_raw = accel_cfg.accel_max * throttle_cmd + accel_cfg.accel_min * (-brake_cmd);
+            const double accel     = std::clamp(accel_raw, accel_cfg.accel_min, accel_cfg.accel_max);
+            accel_output          = longi::ControllerOutput{};
+            accel_output.throttle = throttle_cmd;
+            accel_output.brake    = brake_cmd;
+            accel_output.acceleration = accel;
+            sim.u[1] = accel;
+        }
+
+        if (sim.integrator) {
+            sim.integrator->set_dt(static_cast<double>(sim.dt));
+            const auto& updated_state = sim.integrator->step(sim.u);
+            sim.x = updated_state;
             sim_time += sim.dt;
         }
 
@@ -426,15 +753,21 @@ int main(int, char**)
 
             int model_idx = static_cast<int>(currentModel);
             const char* model_items[] = {
-                "KS rear (vehicle_dynamics_ks)",
+                "KS (vehicle_dynamics_ks)",
                 "KS CoG (vehicle_dynamics_ks_cog)",
+                "KST trailer (vehicle_dynamics_kst)",
+                "Multi-body (vehicle_dynamics_mb)",
                 "ST (vehicle_dynamics_st)",
                 "STD (vehicle_dynamics_std)"
             };
             if (ImGui::Combo("Model", &model_idx, model_items, IM_ARRAYSIZE(model_items))) {
                 currentModel = static_cast<ModelType>(model_idx);
-                reset_simulation(sim, currentModel, vehicle_ids[currentVehicleIdx], param_root);
-                sync_controllers();
+                reset_simulation(sim, currentModel, vehicle_ids[currentVehicleIdx], low_speed_cfg, param_root);
+                try {
+                    sync_controllers();
+                } catch (const std::exception& e) {
+                    return shutdown_with_message(e.what());
+                }
             }
 
             const char* vehicle_items[] = {
@@ -445,11 +778,19 @@ int main(int, char**)
             };
             if (ImGui::Combo("Vehicle", &currentVehicleIdx,
                              vehicle_items, IM_ARRAYSIZE(vehicle_items))) {
-                reset_simulation(sim, currentModel, vehicle_ids[currentVehicleIdx], param_root);
-                sync_controllers();
+                reset_simulation(sim, currentModel, vehicle_ids[currentVehicleIdx], low_speed_cfg, param_root);
+                try {
+                    sync_controllers();
+                } catch (const std::exception& e) {
+                    return shutdown_with_message(e.what());
+                }
             }
 
-            ImGui::SliderFloat("dt [s]", &sim.dt, 0.001f, 0.05f, "%.3f");
+            if (ImGui::SliderFloat("dt [s]", &sim.dt, 0.001f, 0.05f, "%.3f")) {
+                if (sim.integrator) {
+                    sim.integrator->set_dt(static_cast<double>(sim.dt));
+                }
+            }
 
             ImGui::Separator();
             ImGui::Text("Inputs:");
@@ -457,10 +798,20 @@ int main(int, char**)
             ImGui::Text("Wheel rate:   %+6.3f rad/s", wheel_state.rate);
             ImGui::Text("Steer target: %+6.3f rad", steer_state.filtered_target);
             ImGui::Text("Steer angle (cmd): %+6.3f rad", steer_state.angle);
-            const double sim_delta = (sim.x.size() > 2) ? sim.x[2] : 0.0;
-            ImGui::Text("Steer angle (sim): %+6.3f rad", sim_delta);
+            const bool has_sim_delta = sim.x.size() > 2;
+            const double sim_delta   = has_sim_delta ? sim.x[2] : 0.0;
+            if (has_sim_delta) {
+                ImGui::Text("Steer angle (sim): %+6.3f rad", sim_delta);
+            } else {
+                ImGui::Text("Steer angle (sim):    N/A");
+            }
             ImGui::Text("Steer rate:   %+6.3f rad/s", steer_state.rate);
             ImGui::Text("Accel:        %+6.3f m/s^2", sim.u[1]);
+            ImGui::Text("Throttle cmd:  %4.2f", accel_output.throttle);
+            ImGui::Text("Brake cmd:     %4.2f", accel_output.brake);
+            ImGui::Text("Drive force:   %+6.3f N", accel_output.drive_force);
+            ImGui::Text("Brake force:   %+6.3f N", accel_output.brake_force);
+            ImGui::Text("Regen force:   %+6.3f N", accel_output.regen_force);
 
             ImGui::Separator();
             ImGui::Text("State:");

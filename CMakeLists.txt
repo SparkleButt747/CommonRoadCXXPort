@@ -79,6 +79,17 @@ add_library(commonroad STATIC
     ${COMMONROAD_SRC_DIR}/utils/unitConversion.cpp
     ${COMMONROAD_SRC_DIR}/utils/vehicle_dynamics_ks_cog.cpp
 
+    # longitudinal sim
+    ${COMMONROAD_SRC_DIR}/sim/actuators/aero.cpp
+    ${COMMONROAD_SRC_DIR}/sim/actuators/brake.cpp
+    ${COMMONROAD_SRC_DIR}/sim/actuators/powertrain.cpp
+    ${COMMONROAD_SRC_DIR}/sim/actuators/rolling_resistance.cpp
+    ${COMMONROAD_SRC_DIR}/sim/controllers/final_accel_controller.cpp
+    ${COMMONROAD_SRC_DIR}/sim/longitudinal/config_loader.cpp
+    ${COMMONROAD_SRC_DIR}/sim/low_speed_safety.cpp
+    ${COMMONROAD_SRC_DIR}/sim/low_speed_safety_loader.cpp
+    ${COMMONROAD_SRC_DIR}/sim/vehicle_simulator.cpp
+
     # vehicle dynamics
     ${COMMONROAD_SRC_DIR}/vehiclemodels/vehicle_dynamics_ks.cpp
     ${COMMONROAD_SRC_DIR}/vehiclemodels/vehicle_dynamics_kst.cpp
@@ -89,6 +100,7 @@ add_library(commonroad STATIC
 
     # init functions (ports of Python init_*)
     ${COMMONROAD_SRC_DIR}/vehiclemodels/init_ks.cpp
+    ${COMMONROAD_SRC_DIR}/vehiclemodels/init_kst.cpp
     ${COMMONROAD_SRC_DIR}/vehiclemodels/init_st.cpp
     ${COMMONROAD_SRC_DIR}/vehiclemodels/init_mb.cpp
     ${COMMONROAD_SRC_DIR}/vehiclemodels/init_std.cpp
@@ -176,6 +188,22 @@ if(BUILD_COMMONROAD_TESTS)
         tests/test_steering_controller.cpp
     )
     target_link_libraries(test_steering_controller
+        PRIVATE
+            commonroad
+    )
+
+    add_executable(test_longitudinal
+        tests/test_longitudinal.cpp
+    )
+    target_link_libraries(test_longitudinal
+        PRIVATE
+            commonroad
+    )
+
+    add_executable(test_low_speed_safety
+        tests/test_low_speed_safety.cpp
+    )
+    target_link_libraries(test_low_speed_safety
         PRIVATE
             commonroad
     )

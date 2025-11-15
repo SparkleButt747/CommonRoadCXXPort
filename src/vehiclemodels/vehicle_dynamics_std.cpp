@@ -91,14 +91,14 @@ std::vector<double> vehicle_dynamics_std(const std::vector<double>& x,
     );
     const double u_wr = std::max(0.0, x[3] * std::cos(x[6]));
 
+    const double omega_f_state = std::max(0.0, x[7]);
+    const double omega_r_state = std::max(0.0, x[8]);
+
     // ---------------------------------------------------------------------
     // Longitudinal tire slip
-    // Python:
-    // s_f = 1 - p.R_w * x[7] / max(u_wf, v_min)
-    // s_r = 1 - p.R_w * x[8] / max(u_wr, v_min)
     // ---------------------------------------------------------------------
-    const double s_f = 1.0 - p.R_w * x[7] / std::max(u_wf, v_min);
-    const double s_r = 1.0 - p.R_w * x[8] / std::max(u_wr, v_min);
+    const double s_f = 1.0 - p.R_w * omega_f_state / std::max(u_wf, v_min);
+    const double s_r = 1.0 - p.R_w * omega_r_state / std::max(u_wr, v_min);
 
     // ---------------------------------------------------------------------
     // Tire forces (Pacejka) — pure slip
@@ -177,25 +177,20 @@ std::vector<double> vehicle_dynamics_std(const std::vector<double>& x,
     // d_omega_f = ... if x[7] >= 0 else 0; x[7] = max(0, x[7])
     // d_omega_r = ... if x[8] >= 0 else 0; x[8] = max(0, x[8])
     // ---------------------------------------------------------------------
-    double omega_f   = x[7];
-    double omega_r   = x[8];
+    const bool front_negative = x[7] < 0.0;
+    const bool rear_negative  = x[8] < 0.0;
+
     double d_omega_f = 0.0;
     double d_omega_r = 0.0;
 
-    if (omega_f >= 0.0) {
+    if (!front_negative) {
         d_omega_f = (1.0 / p.I_y_w) *
             (-p.R_w * F_xf + p.T_sb * T_B + p.T_se * T_E);
-    } else {
-        omega_f   = 0.0;
-        d_omega_f = 0.0;
     }
 
-    if (omega_r >= 0.0) {
+    if (!rear_negative) {
         d_omega_r = (1.0 / p.I_y_w) *
             (-p.R_w * F_xr + (1.0 - p.T_sb) * T_B + (1.0 - p.T_se) * T_E);
-    } else {
-        omega_r   = 0.0;
-        d_omega_r = 0.0;
     }
 
     // ---------------------------------------------------------------------
@@ -228,8 +223,11 @@ std::vector<double> vehicle_dynamics_std(const std::vector<double>& x,
          x[3] * std::sin(x[6]) * d_beta_ks * std::tan(x[2]) +
          x[3] * std::cos(x[6]) * u[0] / cos_delta_sq);
 
-    const double d_omega_f_ks = (1.0 / 0.02) * (u_wf / p.R_w - omega_f);
-    const double d_omega_r_ks = (1.0 / 0.02) * (u_wr / p.R_w - omega_r);
+    const double omega_f_clamped = front_negative ? 0.0 : omega_f_state;
+    const double omega_r_clamped = rear_negative  ? 0.0 : omega_r_state;
+
+    const double d_omega_f_ks = (1.0 / 0.02) * (u_wf / p.R_w - omega_f_clamped);
+    const double d_omega_r_ks = (1.0 / 0.02) * (u_wr / p.R_w - omega_r_clamped);
 
     // ---------------------------------------------------------------------
     // Weights for mixing both models
