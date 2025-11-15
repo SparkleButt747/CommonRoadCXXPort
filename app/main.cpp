@@ -75,6 +75,11 @@ struct Simulation {
     std::unique_ptr<vsim::VehicleSimulator> integrator;
 };
 
+static vsim::ModelInterface build_model_interface(ModelType model);
+static vsim::LowSpeedSafety build_low_speed_safety(ModelType model,
+                                                   const vm::VehicleParameters& params,
+                                                   const vsim::LowSpeedSafetyConfig& cfg);
+
 static constexpr float kSliderMinDt = vsim::kMinStableDt;
 static constexpr float kSliderMaxDt = 0.05f;
 static constexpr double kDtRebuildRatio = 2.0;
