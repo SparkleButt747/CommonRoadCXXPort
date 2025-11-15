@@ -86,6 +86,9 @@ add_library(commonroad STATIC
     ${COMMONROAD_SRC_DIR}/sim/actuators/rolling_resistance.cpp
     ${COMMONROAD_SRC_DIR}/sim/controllers/final_accel_controller.cpp
     ${COMMONROAD_SRC_DIR}/sim/longitudinal/config_loader.cpp
+    ${COMMONROAD_SRC_DIR}/sim/low_speed_safety.cpp
+    ${COMMONROAD_SRC_DIR}/sim/low_speed_safety_loader.cpp
+    ${COMMONROAD_SRC_DIR}/sim/vehicle_simulator.cpp
 
     # vehicle dynamics
     ${COMMONROAD_SRC_DIR}/vehiclemodels/vehicle_dynamics_ks.cpp
@@ -193,6 +196,14 @@ if(BUILD_COMMONROAD_TESTS)
         tests/test_longitudinal.cpp
     )
     target_link_libraries(test_longitudinal
+        PRIVATE
+            commonroad
+    )
+
+    add_executable(test_low_speed_safety
+        tests/test_low_speed_safety.cpp
+    )
+    target_link_libraries(test_low_speed_safety
         PRIVATE
             commonroad
     )

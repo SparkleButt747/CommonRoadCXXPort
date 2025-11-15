@@ -1,5 +1,6 @@
 #include "vehiclemodels/vehicle_dynamics_mb.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <vector>
 
@@ -66,10 +67,20 @@ std::vector<double> vehicle_dynamics_mb(const std::vector<double>& x,
         s_lr = 0.0;
         s_rr = 0.0;
     } else {
-        s_lf = 1.0 - p.R_w * x[23] / u_w_lf;
-        s_rf = 1.0 - p.R_w * x[24] / u_w_rf;
-        s_lr = 1.0 - p.R_w * x[25] / u_w_lr;
-        s_rr = 1.0 - p.R_w * x[26] / u_w_rr;
+        const double omega_lf = std::max(0.0, x[23]);
+        const double omega_rf = std::max(0.0, x[24]);
+        const double omega_lr = std::max(0.0, x[25]);
+        const double omega_rr = std::max(0.0, x[26]);
+
+        const double denom_lf = std::max(u_w_lf, 1e-6);
+        const double denom_rf = std::max(u_w_rf, 1e-6);
+        const double denom_lr = std::max(u_w_lr, 1e-6);
+        const double denom_rr = std::max(u_w_rr, 1e-6);
+
+        s_lf = 1.0 - p.R_w * omega_lf / denom_lf;
+        s_rf = 1.0 - p.R_w * omega_rf / denom_rf;
+        s_lr = 1.0 - p.R_w * omega_lr / denom_lr;
+        s_rr = 1.0 - p.R_w * omega_rr / denom_rr;
     }
 
     // lateral slip angles

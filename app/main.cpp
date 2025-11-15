@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <exception>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -35,7 +36,6 @@
 
 #include "vehiclemodels/vehicle_dynamics_ks.hpp"
 #include "vehiclemodels/vehicle_dynamics_kst.hpp"
-#include "vehiclemodels/vehicle_dynamics_linearized.hpp"
 #include "vehiclemodels/vehicle_dynamics_mb.hpp"
 #include "vehiclemodels/vehicle_dynamics_st.hpp"
 #include "vehiclemodels/vehicle_dynamics_std.hpp"
@@ -50,35 +50,35 @@
 
 #include "sim/longitudinal/config_loader.hpp"
 #include "sim/longitudinal/final_accel_controller.hpp"
+#include "sim/low_speed_safety_loader.hpp"
+#include "sim/vehicle_simulator.hpp"
 
 namespace vm     = vehiclemodels;
 namespace vutils = vehiclemodels::utils;
 namespace longi  = vehiclemodels::sim::longitudinal;
+namespace vsim   = vehiclemodels::sim;
 
 // --------------------------------------------------------------
 // Simulation model dispatch
 // --------------------------------------------------------------
 
 enum class ModelType {
-    KS_REAR    = 0,
-    KS_COG     = 1,
-    KST        = 2,
-    LINEARIZED = 3,
-    MB         = 4,
-    ST         = 5,
-    STD        = 6
+    KS_REAR = 0,
+    KS_COG  = 1,
+    KST     = 2,
+    MB      = 3,
+    ST      = 4,
+    STD     = 5
 };
 
 struct Simulation {
-    ModelType             model;
-    int                   vehicle_id;
-    vm::VehicleParameters params;
-    std::vector<double>   x;     // state
-    std::vector<double>   u;     // input [steer_rate, accel]
-    float                 dt;    // integration step [s]
-    std::vector<double>   ref_pos;
-    std::vector<double>   ref_theta;
-    double                last_steer_rate = 0.0;
+    ModelType                               model;
+    int                                     vehicle_id;
+    vm::VehicleParameters                   params;
+    std::vector<double>                     x;     // state
+    std::vector<double>                     u;     // input [steer_rate, accel]
+    float                                   dt;    // integration step [s]
+    std::unique_ptr<vsim::VehicleSimulator> integrator;
 };
 
 // load parameters by id
@@ -94,66 +94,174 @@ static vm::VehicleParameters load_vehicle_params(int id, const std::string& root
     }
 }
 
-// compute RHS for current model
-static std::vector<double> compute_rhs(Simulation& sim)
+static vsim::ModelInterface build_model_interface(ModelType model)
 {
-    switch (sim.model) {
+    vsim::ModelInterface iface{};
+    switch (model) {
         case ModelType::KS_REAR:
-            return vm::vehicle_dynamics_ks(sim.x, sim.u, sim.params);
+            iface.dynamics_fn = [](const std::vector<double>& x,
+                                   const std::vector<double>& u,
+                                   const vm::VehicleParameters& params) {
+                return vm::vehicle_dynamics_ks(x, u, params);
+            };
+            iface.speed_fn = [](const std::vector<double>& state,
+                                const vm::VehicleParameters&) {
+                return (state.size() > 3) ? std::abs(state[3]) : 0.0;
+            };
+            break;
 
-        case ModelType::KS_COG: {
-            std::array<double, 5> x_arr{};
-            std::array<double, 2> u_arr{};
-            for (int i = 0; i < 5; ++i) x_arr[i] = sim.x[i];
-            u_arr[0] = sim.u[0];
-            u_arr[1] = sim.u[1];
-            auto f_arr = vm::utils::vehicle_dynamics_ks_cog(x_arr, u_arr, sim.params);
-            std::vector<double> f(5);
-            for (int i = 0; i < 5; ++i) f[i] = f_arr[i];
-            return f;
-        }
+        case ModelType::KS_COG:
+            iface.dynamics_fn = [](const std::vector<double>& x,
+                                   const std::vector<double>& u,
+                                   const vm::VehicleParameters& params) {
+                std::array<double, 5> x_arr{};
+                std::array<double, 2> u_arr{};
+                for (std::size_t i = 0; i < x_arr.size(); ++i) {
+                    x_arr[i] = (i < x.size()) ? x[i] : 0.0;
+                }
+                if (!u.empty()) {
+                    u_arr[0] = u[0];
+                }
+                if (u.size() > 1) {
+                    u_arr[1] = u[1];
+                }
+                auto result = vm::utils::vehicle_dynamics_ks_cog(x_arr, u_arr, params);
+                return std::vector<double>(result.begin(), result.end());
+            };
+            iface.speed_fn = [](const std::vector<double>& state,
+                                const vm::VehicleParameters&) {
+                return (state.size() > 3) ? std::abs(state[3]) : 0.0;
+            };
+            break;
 
         case ModelType::KST:
-            return vm::vehicle_dynamics_kst(sim.x, sim.u, sim.params);
-
-        case ModelType::LINEARIZED: {
-            std::vector<double> u_model(2, 0.0);
-            const double accel_cmd    = (sim.u.size() > 1) ? sim.u[1] : 0.0;
-            const double current_acc  = (sim.x.size() > 2) ? sim.x[2] : 0.0;
-            const double current_jerk = (sim.x.size() > 3) ? sim.x[3] : 0.0;
-            const double accel_tau    = 0.3; // seconds
-            u_model[0] = (accel_cmd - current_acc) * (1.0 / accel_tau) - current_jerk / accel_tau;
-
-            const double steer_rate   = (sim.u.size() > 0) ? sim.u[0] : 0.0;
-            const double dt           = std::max(1e-4f, sim.dt);
-            const double rate_diff    = (steer_rate - sim.last_steer_rate) / dt;
-            double wheelbase          = sim.params.a + sim.params.b;
-            if (!std::isfinite(wheelbase) || wheelbase <= 0.0) {
-                wheelbase = 2.5;
-            }
-            u_model[1] = rate_diff / wheelbase;
-            sim.last_steer_rate = steer_rate;
-
-            if (sim.ref_pos.empty() || sim.ref_theta.empty()) {
-                sim.ref_pos  = {0.0, 1.0};
-                sim.ref_theta = {0.0, 0.0};
-            }
-
-            return vm::vehicle_dynamics_linearized(sim.x, u_model, sim.params, sim.ref_pos, sim.ref_theta);
-        }
+            iface.dynamics_fn = [](const std::vector<double>& x,
+                                   const std::vector<double>& u,
+                                   const vm::VehicleParameters& params) {
+                return vm::vehicle_dynamics_kst(x, u, params);
+            };
+            iface.speed_fn = [](const std::vector<double>& state,
+                                const vm::VehicleParameters&) {
+                return (state.size() > 3) ? std::abs(state[3]) : 0.0;
+            };
+            break;
 
         case ModelType::MB:
-            return vm::vehicle_dynamics_mb(sim.x, sim.u, sim.params);
+            iface.dynamics_fn = [](const std::vector<double>& x,
+                                   const std::vector<double>& u,
+                                   const vm::VehicleParameters& params) {
+                return vm::vehicle_dynamics_mb(x, u, params);
+            };
+            iface.speed_fn = [](const std::vector<double>& state,
+                                const vm::VehicleParameters&) {
+                if (state.size() > 10) {
+                    return std::hypot(state[3], state[10]);
+                }
+                if (state.size() > 3) {
+                    return std::abs(state[3]);
+                }
+                return 0.0;
+            };
+            break;
 
         case ModelType::ST:
-            return vm::vehicle_dynamics_st(sim.x, sim.u, sim.params);
+            iface.dynamics_fn = [](const std::vector<double>& x,
+                                   const std::vector<double>& u,
+                                   const vm::VehicleParameters& params) {
+                return vm::vehicle_dynamics_st(x, u, params);
+            };
+            iface.speed_fn = [](const std::vector<double>& state,
+                                const vm::VehicleParameters&) {
+                return (state.size() > 3) ? std::abs(state[3]) : 0.0;
+            };
+            break;
 
         case ModelType::STD:
-            return vm::vehicle_dynamics_std(sim.x, sim.u, sim.params);
+            iface.dynamics_fn = [](const std::vector<double>& x,
+                                   const std::vector<double>& u,
+                                   const vm::VehicleParameters& params) {
+                return vm::vehicle_dynamics_std(x, u, params);
+            };
+            iface.speed_fn = [](const std::vector<double>& state,
+                                const vm::VehicleParameters&) {
+                return (state.size() > 3) ? std::abs(state[3]) : 0.0;
+            };
+            break;
     }
-    return {};
+
+    if (!iface.valid()) {
+        throw std::runtime_error("Unsupported model type for simulator");
+    }
+    return iface;
 }
 
+static vsim::LowSpeedSafety build_low_speed_safety(ModelType model,
+                                                   const vm::VehicleParameters& params,
+                                                   const vsim::LowSpeedSafetyConfig& cfg)
+{
+    std::optional<int> longitudinal;
+    std::optional<int> lateral;
+    std::optional<int> yaw_rate;
+    std::optional<int> slip;
+    std::vector<int>   wheel_indices;
+    std::optional<int> steering;
+
+    switch (model) {
+        case ModelType::KS_REAR:
+        case ModelType::KS_COG:
+        case ModelType::KST:
+            longitudinal = 3;
+            steering     = 2;
+            break;
+
+        case ModelType::ST:
+            longitudinal = 3;
+            yaw_rate     = 5;
+            slip         = 6;
+            steering     = 2;
+            break;
+
+        case ModelType::STD:
+            longitudinal = 3;
+            yaw_rate     = 5;
+            slip         = 6;
+            wheel_indices = {7, 8};
+            steering      = 2;
+            break;
+
+        case ModelType::MB:
+            longitudinal = 3;
+            lateral      = 10;
+            yaw_rate     = 5;
+            wheel_indices = {23, 24, 25, 26};
+            steering      = 2;
+            break;
+    }
+
+    std::optional<double> wheelbase;
+    std::optional<double> rear_length;
+    if (std::isfinite(params.a) && std::isfinite(params.b)) {
+        const double wb = params.a + params.b;
+        if (wb > 0.0) {
+            wheelbase = wb;
+        }
+    }
+    if (std::isfinite(params.b) && params.b > 0.0) {
+        rear_length = params.b;
+    }
+
+    return vsim::LowSpeedSafety(cfg,
+                                longitudinal,
+                                lateral,
+                                yaw_rate,
+                                slip,
+                                wheel_indices,
+                                steering,
+                                wheelbase,
+                                rear_length);
+}
+
+// compute RHS for current model
 // --------------------------------------------------------------
 // Telemetry
 // --------------------------------------------------------------
@@ -217,15 +325,6 @@ static Telemetry compute_telemetry(const Simulation& sim)
                 beta = std::atan2(v_lat, v_long);
             }
             break;
-
-        case ModelType::LINEARIZED:
-            if (sim.x.size() >= 6) {
-                v_long = sim.x[1];
-                yaw    = sim.x[5];
-            }
-            v_lat = 0.0;
-            beta  = 0.0;
-            break;
     }
 
     const double speed = std::hypot(v_long, v_lat);
@@ -237,20 +336,13 @@ static Telemetry compute_telemetry(const Simulation& sim)
     t.v_global_x        = speed * std::cos(heading);
     t.v_global_y        = speed * std::sin(heading);
 
-    if (sim.model == ModelType::LINEARIZED && sim.x.size() > 2) {
-        t.a_long = sim.x[2];
-    } else if (sim.u.size() > 1) {
+    if (sim.u.size() > 1) {
         t.a_long = sim.u[1];
     } else {
         t.a_long = 0.0;
     }
 
     switch (sim.model) {
-        case ModelType::LINEARIZED:
-            if (sim.x.size() > 6) {
-                t.a_lat = v_long * v_long * sim.x[6];
-            }
-            break;
         case ModelType::MB:
             if (sim.x.size() > 5) {
                 t.a_lat = v_long * sim.x[5];
@@ -270,12 +362,10 @@ static Telemetry compute_telemetry(const Simulation& sim)
 
 static double simulation_speed(const Simulation& sim)
 {
+    if (sim.integrator) {
+        return sim.integrator->speed();
+    }
     switch (sim.model) {
-        case ModelType::LINEARIZED:
-            if (sim.x.size() > 1) {
-                return std::abs(sim.x[1]);
-            }
-            break;
         case ModelType::MB:
             if (sim.x.size() > 10) {
                 return std::hypot(sim.x[3], sim.x[10]);
@@ -308,22 +398,10 @@ struct Pose {
 static Pose extract_pose(const Simulation& sim)
 {
     Pose pose{};
-    switch (sim.model) {
-        case ModelType::LINEARIZED:
-            if (sim.x.size() >= 6) {
-                pose.x   = sim.x[0];
-                pose.y   = (sim.x.size() > 4) ? sim.x[4] : 0.0;
-                pose.yaw = sim.x[5];
-            }
-            break;
-
-        default:
-            if (sim.x.size() >= 5) {
-                pose.x   = sim.x[0];
-                pose.y   = sim.x[1];
-                pose.yaw = sim.x[4];
-            }
-            break;
+    if (sim.x.size() >= 5) {
+        pose.x   = sim.x[0];
+        pose.y   = sim.x[1];
+        pose.yaw = sim.x[4];
     }
     return pose;
 }
@@ -390,15 +468,14 @@ static void draw_car(SDL_Renderer* renderer,
 static void reset_simulation(Simulation& sim,
                              ModelType model,
                              int vehicle_id,
+                             const vsim::LowSpeedSafetyConfig& safety_cfg,
                              const std::string& param_root = {})
 {
     sim.model      = model;
     sim.vehicle_id = vehicle_id;
     sim.params     = load_vehicle_params(vehicle_id, param_root);
     sim.u.assign(2, 0.0);
-    sim.ref_pos.clear();
-    sim.ref_theta.clear();
-    sim.last_steer_rate = 0.0f;
+    sim.integrator.reset();
 
     // core init state: [sx, sy, delta, v, psi, dotPsi, beta]
     std::vector<double> core{
@@ -419,18 +496,6 @@ static void reset_simulation(Simulation& sim,
         case ModelType::KST:
             sim.x = vm::init_kst(core, 0.0);    // length 6
             break;
-        case ModelType::LINEARIZED: {
-            sim.x.assign({0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0});
-            const int samples = 1001;
-            sim.ref_pos.resize(samples);
-            sim.ref_theta.resize(samples);
-            const double step = 1.0;
-            for (int i = 0; i < samples; ++i) {
-                sim.ref_pos[i]   = step * static_cast<double>(i);
-                sim.ref_theta[i] = 0.0;
-            }
-            break;
-        }
         case ModelType::MB:
             sim.x = vm::init_mb(core, sim.params); // length 29
             break;
@@ -441,6 +506,16 @@ static void reset_simulation(Simulation& sim,
             sim.x = vm::init_std(core, sim.params); // length 9
             break;
     }
+
+    auto iface  = build_model_interface(model);
+    auto safety = build_low_speed_safety(model, sim.params, safety_cfg);
+    sim.integrator = std::make_unique<vsim::VehicleSimulator>(
+        std::move(iface),
+        sim.params,
+        static_cast<double>(sim.dt),
+        std::move(safety));
+    sim.integrator->reset(sim.x);
+    sim.x = sim.integrator->state();
 }
 
 // --------------------------------------------------------------
@@ -489,17 +564,6 @@ int main(int, char**)
     ImGui_ImplSDL2_InitForSDLRenderer(window, renderer);
     ImGui_ImplSDLRenderer2_Init(renderer);
 
-    // Simulation setup
-    Simulation sim{};
-    sim.dt = 0.01f;
-
-    ModelType currentModel = ModelType::ST;
-    int currentVehicleIdx  = 0; // 0..3 -> IDs 1..4
-    const int vehicle_ids[4] = {1, 2, 3, 4};
-    std::string param_root;
-
-    reset_simulation(sim, currentModel, vehicle_ids[currentVehicleIdx], param_root);
-
     auto shutdown_with_message = [&](const char* msg) -> int {
         if (msg) {
             std::fprintf(stderr, "Error: %s\n", msg);
@@ -512,6 +576,24 @@ int main(int, char**)
         SDL_Quit();
         return 1;
     };
+
+    // Simulation setup
+    Simulation sim{};
+    sim.dt = 0.01f;
+
+    ModelType currentModel = ModelType::ST;
+    int currentVehicleIdx  = 0; // 0..3 -> IDs 1..4
+    const int vehicle_ids[4] = {1, 2, 3, 4};
+    std::string param_root;
+
+    vsim::LowSpeedSafetyConfig low_speed_cfg{};
+    try {
+        low_speed_cfg = vsim::load_default_low_speed_safety_config();
+    } catch (const std::exception& e) {
+        return shutdown_with_message(e.what());
+    }
+
+    reset_simulation(sim, currentModel, vehicle_ids[currentVehicleIdx], low_speed_cfg, param_root);
 
     vutils::SteeringConfig steering_config;
     try {
@@ -540,6 +622,8 @@ int main(int, char**)
     } catch (const std::exception& e) {
         return shutdown_with_message(e.what());
     }
+
+    accel_cfg.stop_speed_epsilon = low_speed_cfg.stop_speed_epsilon;
 
     auto build_accel_controller = [&]() {
         const double mass         = sim.params.m;
@@ -649,12 +733,10 @@ int main(int, char**)
             sim.u[1] = accel;
         }
 
-        // integrate one step
-        auto f = compute_rhs(sim);
-        if (f.size() == sim.x.size()) {
-            for (std::size_t i = 0; i < sim.x.size(); ++i) {
-                sim.x[i] += f[i] * sim.dt;
-            }
+        if (sim.integrator) {
+            sim.integrator->set_dt(static_cast<double>(sim.dt));
+            const auto& updated_state = sim.integrator->step(sim.u);
+            sim.x = updated_state;
             sim_time += sim.dt;
         }
 
@@ -674,14 +756,13 @@ int main(int, char**)
                 "KS (vehicle_dynamics_ks)",
                 "KS CoG (vehicle_dynamics_ks_cog)",
                 "KST trailer (vehicle_dynamics_kst)",
-                "Linearized (vehicle_dynamics_linearized)",
                 "Multi-body (vehicle_dynamics_mb)",
                 "ST (vehicle_dynamics_st)",
                 "STD (vehicle_dynamics_std)"
             };
             if (ImGui::Combo("Model", &model_idx, model_items, IM_ARRAYSIZE(model_items))) {
                 currentModel = static_cast<ModelType>(model_idx);
-                reset_simulation(sim, currentModel, vehicle_ids[currentVehicleIdx], param_root);
+                reset_simulation(sim, currentModel, vehicle_ids[currentVehicleIdx], low_speed_cfg, param_root);
                 try {
                     sync_controllers();
                 } catch (const std::exception& e) {
@@ -697,7 +778,7 @@ int main(int, char**)
             };
             if (ImGui::Combo("Vehicle", &currentVehicleIdx,
                              vehicle_items, IM_ARRAYSIZE(vehicle_items))) {
-                reset_simulation(sim, currentModel, vehicle_ids[currentVehicleIdx], param_root);
+                reset_simulation(sim, currentModel, vehicle_ids[currentVehicleIdx], low_speed_cfg, param_root);
                 try {
                     sync_controllers();
                 } catch (const std::exception& e) {
@@ -705,7 +786,11 @@ int main(int, char**)
                 }
             }
 
-            ImGui::SliderFloat("dt [s]", &sim.dt, 0.001f, 0.05f, "%.3f");
+            if (ImGui::SliderFloat("dt [s]", &sim.dt, 0.001f, 0.05f, "%.3f")) {
+                if (sim.integrator) {
+                    sim.integrator->set_dt(static_cast<double>(sim.dt));
+                }
+            }
 
             ImGui::Separator();
             ImGui::Text("Inputs:");
@@ -713,11 +798,8 @@ int main(int, char**)
             ImGui::Text("Wheel rate:   %+6.3f rad/s", wheel_state.rate);
             ImGui::Text("Steer target: %+6.3f rad", steer_state.filtered_target);
             ImGui::Text("Steer angle (cmd): %+6.3f rad", steer_state.angle);
-            bool has_sim_delta = sim.model != ModelType::LINEARIZED;
-            double sim_delta   = 0.0;
-            if (has_sim_delta && sim.x.size() > 2) {
-                sim_delta = sim.x[2];
-            }
+            const bool has_sim_delta = sim.x.size() > 2;
+            const double sim_delta   = has_sim_delta ? sim.x[2] : 0.0;
             if (has_sim_delta) {
                 ImGui::Text("Steer angle (sim): %+6.3f rad", sim_delta);
             } else {
