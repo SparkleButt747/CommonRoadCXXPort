@@ -300,14 +300,17 @@ std::vector<double> vehicle_dynamics_mb(const std::vector<double>& x,
         f.push_back(f_ks[4]);
 
         // derivative of slip angle and yaw rate
+        const double tan_delta = std::tan(x[2]);
+        const double cos_delta = std::cos(x[2]);
+        const double cos_delta_sq = cos_delta * cos_delta;
+        const double term = tan_delta * tan_delta * p.b / lwb;
+
         const double d_beta = (p.b * u[0]) /
-                              (lwb * std::cos(x[2]) * std::cos(x[2]) *
-                               (1.0 + std::pow(std::tan(x[2]) * p.b / lwb, 2)));
+                              (lwb * cos_delta_sq * (1.0 + term * term));
         const double dd_psi = 1.0 / lwb *
-                              (u[1] * std::cos(x[6]) * std::tan(x[2]) -
-                               x[3] * std::sin(x[6]) * d_beta * std::tan(x[2]) +
-                               x[3] * std::cos(x[6]) * u[0] /
-                                   (std::cos(x[2]) * std::cos(x[2])));
+                              (u[1] * std::cos(x[6]) * tan_delta -
+                               x[3] * std::sin(x[6]) * d_beta * tan_delta +
+                               x[3] * std::cos(x[6]) * u[0] / cos_delta_sq);
         f.push_back(dd_psi);
     } else {
         // dynamic model

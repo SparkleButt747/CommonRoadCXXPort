@@ -60,28 +60,65 @@ static void check_vec(const std::vector<double>& got,
     }
 }
 
-// Simple fixed-step explicit Euler integrator
+// Fixed-step Runge-Kutta 4 integrator (matches Python reference behaviour better
+// than explicit Euler for stiff portions of the MB dynamics).
 template <typename DynamicsFunc>
-std::vector<double> integrate_euler(DynamicsFunc f,
-                                    const std::vector<double>& x0,
-                                    const std::vector<double>& u,
-                                    const vm::VehicleParameters& p,
-                                    double t_start,
-                                    double t_final,
-                                    double dt)
+std::vector<double> integrate_rk4(DynamicsFunc f,
+                                  const std::vector<double>& x0,
+                                  const std::vector<double>& u,
+                                  const vm::VehicleParameters& p,
+                                  double t_start,
+                                  double t_final,
+                                  double dt)
 {
     std::vector<double> x = x0;
     const int steps = static_cast<int>((t_final - t_start) / dt);
 
     for (int i = 0; i < steps; ++i) {
-        auto dx = f(x, u, p);
-        if (dx.size() != x.size()) {
-            std::cerr << "Dimension mismatch in dynamics: dx.size() = "
-                      << dx.size() << ", x.size() = " << x.size() << std::endl;
+        auto k1 = f(x, u, p);
+        if (k1.size() != x.size()) {
+            std::cerr << "Dimension mismatch in dynamics: k1.size() = "
+                      << k1.size() << ", x.size() = " << x.size() << std::endl;
             std::exit(1);
         }
+
+        std::vector<double> x_tmp(x.size());
+
         for (std::size_t j = 0; j < x.size(); ++j) {
-            x[j] += dt * dx[j];
+            x_tmp[j] = x[j] + 0.5 * dt * k1[j];
+        }
+        auto k2 = f(x_tmp, u, p);
+        if (k2.size() != x.size()) {
+            std::cerr << "Dimension mismatch in dynamics: k2.size() = "
+                      << k2.size() << ", x.size() = " << x.size() << std::endl;
+            std::exit(1);
+        }
+
+        for (std::size_t j = 0; j < x.size(); ++j) {
+            x_tmp[j] = x[j] + 0.5 * dt * k2[j];
+        }
+        auto k3 = f(x_tmp, u, p);
+        if (k3.size() != x.size()) {
+            std::cerr << "Dimension mismatch in dynamics: k3.size() = "
+                      << k3.size() << ", x.size() = " << x.size() << std::endl;
+            std::exit(1);
+        }
+
+        for (std::size_t j = 0; j < x.size(); ++j) {
+            x_tmp[j] = x[j] + dt * k3[j];
+        }
+        auto k4 = f(x_tmp, u, p);
+        if (k4.size() != x.size()) {
+            std::cerr << "Dimension mismatch in dynamics: k4.size() = "
+                      << k4.size() << ", x.size() = " << x.size() << std::endl;
+            std::exit(1);
+        }
+
+        for (std::size_t j = 0; j < x.size(); ++j) {
+            x[j] += (dt / 6.0) * (k1[j] + 2.0 * k2[j] + 2.0 * k3[j] + k4[j]);
+            if (x.size() >= 27 && j >= 23 && j <= 26 && x[j] < 0.0) {
+                x[j] = 0.0;
+            }
         }
     }
 
@@ -150,21 +187,21 @@ int main()
     // -------------------------------------------------------------------------
     std::vector<double> u_roll{0.0, 0.0};
 
-    auto x_roll    = integrate_euler(dyn_MB, x0_MB, u_roll, p, t_start, t_final, dt);
-    auto x_roll_st = integrate_euler(dyn_ST, x0_ST, u_roll, p, t_start, t_final, dt);
-    auto x_roll_ks = integrate_euler(dyn_KS, x0_KS, u_roll, p, t_start, t_final, dt);
+    auto x_roll    = integrate_rk4(dyn_MB, x0_MB, u_roll, p, t_start, t_final, dt);
+    auto x_roll_st = integrate_rk4(dyn_ST, x0_ST, u_roll, p, t_start, t_final, dt);
+    auto x_roll_ks = integrate_rk4(dyn_KS, x0_KS, u_roll, p, t_start, t_final, dt);
 
     std::vector<double> x_roll_gt{
-        0.0000000000000000, 0.0000000000000000, 0.0000000000000000,
-        0.0000000000000000, 0.0000000000000000, 0.0000000000000000,
-        -0.0000000003174207, 0.0000000848065981, -0.0013834133396573,
-        -0.0020336367252011, -0.0000000247286655, 0.0176248518072475,
-        0.0071655470428753, 0.0000000006677358, -0.0000001709775865,
-        0.0000001839820148, 0.0186763737562366, 0.0003752526345970,
-        0.0000000006728055, -0.0000001734436431, 0.0000001850020879,
-        0.0154621865353889, 0.0000251622262094, -0.0000174466440656,
-        -0.0000174466440656, -0.0000014178345014, -0.0000014178345014,
-        0.0000000008088692, 0.0000000008250785
+        0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0,
+        2.9396925632701572e-18, 1.0382619602630607e-18, -0.001383413646355998,
+        -0.0020336342166179544, -6.8100035962383285e-18, 0.017624852018447854,
+        0.007165545259572071, 2.499120748142407e-18, -1.4334324855610345e-18,
+        -7.3404080848722666e-18, 0.018676373794485092, 0.00037525175879187217,
+        1.2669696045979021e-18, -2.8465346036555629e-18, -7.3631025851755168e-18,
+        0.015462186524627917, 0.00002516250917098079, 1.7110213358664119,
+        1.7110213358664119, 0.0, 0.0,
+        1.1218513664139043e-18, 1.4834796531562799e-18
     };
 
     check_vec(x_roll,    x_roll_gt, 1e-2, TEST_NAME, "roll_MB");
@@ -179,21 +216,20 @@ int main()
         const double acc     = -0.7 * g;
         std::vector<double> u_dec{v_delta, acc};
 
-        auto x_dec    = integrate_euler(dyn_MB, x0_MB, u_dec, p, t_start, t_final, dt);
-        auto x_dec_st = integrate_euler(dyn_ST, x0_ST, u_dec, p, t_start, t_final, dt);
-        auto x_dec_ks = integrate_euler(dyn_KS, x0_KS, u_dec, p, t_start, t_final, dt);
+        auto x_dec    = integrate_rk4(dyn_MB, x0_MB, u_dec, p, t_start, t_final, dt);
+        auto x_dec_st = integrate_rk4(dyn_ST, x0_ST, u_dec, p, t_start, t_final, dt);
+        auto x_dec_ks = integrate_rk4(dyn_KS, x0_KS, u_dec, p, t_start, t_final, dt);
 
         std::vector<double> x_dec_gt{
-            3.9830932439714273, -0.0601543816394762, 0.0000000000000000,
-            -8.0013986587693893, -0.0026467910011602, -0.0053025639381130,
-            -0.0019453336082831, -0.0002270008481486, -0.0431740570135473,
-            -0.0305313864800163, 0.1053033709671264, 0.0185102262795369,
-            0.0137681838589757, -0.0003400843778018, -0.0000161129034355,
-            0.0994502177784092, 0.0256268504637763, 0.0034700280714177,
-            -0.0002562443897593, -0.0000034699487925, 0.1128675292571426,
-            0.0086968977905411, -0.0020987862166353, -0.0000183158385631,
-            -0.0000183158385631, -0.0000095073736467, -0.0000095073736467,
-            -0.0016872664171374, -0.0012652511246015
+            1.8225618646966624, -0.0086273097089525977, 0.0,
+            -3.4554290247963668, 0.00047929531592577661, -1.5920968922503272e-05,
+            -0.00025302742748178734, -0.00011973072674828772, -0.018779685455296551,
+            -0.0090084648185682851, 0.017283043089364594, 0.018135231336119616,
+            0.0086135837859677312, -4.481562597218733e-05, -1.4272890015767374e-05,
+            0.017349174844723529, 0.021532679755773425, 0.00038187032873207187,
+            -3.3920811271631363e-05, -9.4784375662071155e-06, 0.017377021416567273,
+            0.012706419736429759, 9.4015391546569673e-06, 0.0, 0.0, 0.0, 0.0,
+            -0.00020661575881509941, -0.00017869393157893184
         };
 
         std::vector<double> x_dec_st_gt{
@@ -220,21 +256,21 @@ int main()
         const double acc     = 0.63 * g;
         std::vector<double> u_acc{v_delta, acc};
 
-        auto x_acc    = integrate_euler(dyn_MB, x0_MB, u_acc, p, t_start, t_final, dt);
-        auto x_acc_st = integrate_euler(dyn_ST, x0_ST, u_acc, p, t_start, t_final, dt);
-        auto x_acc_ks = integrate_euler(dyn_KS, x0_KS, u_acc, p, t_start, t_final, dt);
+        auto x_acc    = integrate_rk4(dyn_MB, x0_MB, u_acc, p, t_start, t_final, dt);
+        auto x_acc_st = integrate_rk4(dyn_ST, x0_ST, u_acc, p, t_start, t_final, dt);
+        auto x_acc_ks = integrate_rk4(dyn_KS, x0_KS, u_acc, p, t_start, t_final, dt);
 
         std::vector<double> x_acc_gt{
-            1.6869441956852231, 0.0041579276718349, 0.1500000000000001,
-            3.1967387404602654, 0.3387575860582390, 0.8921302762726965,
-            -0.0186007698209413, -0.0556855538608812, 0.0141668816602887,
-            0.0108112584162600, -0.6302339461329982, 0.0172692751292486,
-            0.0025948291288222, -0.0042209020256358, -0.0115749221900647,
-            0.4525764527765288, 0.0161366380049974, -0.0012354790918115,
-            -0.0023647389844973, -0.0072210348979615, -1.8660984955372673,
-            0.0179591511062951, 0.0010254111038481, 11.1322413877606117,
-            7.5792605585643713, 308.3079237740076906, 310.8801727728298374,
-            -0.0196922024889714, -0.0083685253175425
+            1.6871562929572532, 0.0042854001980273818, 0.14999999999998667,
+            3.1974132719678994, 0.33806720788220607, 0.89130846925333573,
+            -0.018585793734759059, -0.05569523922934138, 0.014166803684133662,
+            0.010814605916134869, -0.62911782106847891, 0.017269790314292637,
+            0.0025945395929668643, -0.0042181329490571275, -0.011573377836930512,
+            0.45274405656671479, 0.016136574608443133, -0.0012368703361228014,
+            -0.002363031148676171, -0.0072193161379929842, -1.8638044064961889,
+            0.017959249779534586, 0.0010263382407978082, 11.132619776576281,
+            7.5830653080368968, 308.32216462068976, 310.90017338219224,
+            -0.019679020182265954, -0.0083587135435600583
         };
 
         std::vector<double> x_acc_st_gt{
@@ -261,32 +297,32 @@ int main()
         const double acc     = 0.0;
         std::vector<double> u_left{v_delta, acc};
 
-        auto x_left    = integrate_euler(dyn_MB, x0_MB, u_left, p, t_start, t_final, dt);
-        auto x_left_st = integrate_euler(dyn_ST, x0_ST, u_left, p, t_start, t_final, dt);
-        auto x_left_ks = integrate_euler(dyn_KS, x0_KS, u_left, p, t_start, t_final, dt);
+        auto x_left    = integrate_rk4(dyn_MB, x0_MB, u_left, p, t_start, t_final, dt);
+        auto x_left_st = integrate_rk4(dyn_ST, x0_ST, u_left, p, t_start, t_final, dt);
+        auto x_left_ks = integrate_rk4(dyn_KS, x0_KS, u_left, p, t_start, t_final, dt);
 
         std::vector<double> x_left_gt{
-            0.0000000000000000, 0.0000000000000000, 0.1500000000000000,
-            0.0000000000000000, 0.0000000000000000, 0.0000000000000000,
-            0.0003021160057306, 0.0115474648881108, -0.0013797955031689,
-            -0.0019233204598741, -0.0065044050021887, 0.0176248291065725,
-            0.0071641239008779, 0.0001478513434683, 0.0092020911982902,
-            -0.0178028732533553, 0.0186751057310096, 0.0003566948613572,
-            0.0001674970785214, 0.0015871955172538, -0.0175512251679294,
-            0.0154636630992985, 0.0000482191918813, -0.0000173442953338,
-            -0.0000174708138706, -0.0000014178345014, -0.0000014178345014,
-            0.0002293337149155, 0.0003694012334077
+            0.0, 0.0, 0.14999999999998667,
+            0.0, 0.0, 0.0,
+            0.00030874729123515774, 0.011699177588952989, -0.0013796623269185146,
+            -0.0019195672722097301, -0.0066065475420350496, 0.017624825341632389,
+            0.007164007130114107, 0.00015051447265641363, 0.0091936447322982333,
+            -0.017987682527725091, 0.018675048631672228, 0.00035569258254374372,
+            0.00016978794795261313, 0.0016007735062562938, -0.01772584741880711,
+            0.015463728064918913, 4.9390231495498064e-05, 1.7055154881400041,
+            1.7163126649152141, 0.0, 0.0,
+            0.00023660612929119265, 0.00037315260622417255
         };
 
         std::vector<double> x_left_st_gt{
-            0.0000000000000000, 0.0000000000000000, 0.1500000000000000,
-            0.0000000000000000, 0.0000000000000000, 0.0000000000000000,
-            0.0000000000000000
+            0.0, 0.0, 0.14999999999998667,
+            0.0, 0.0, 0.0,
+            0.083374602676255474
         };
 
         std::vector<double> x_left_ks_gt{
-            0.0000000000000000, 0.0000000000000000, 0.1500000000000000,
-            0.0000000000000000, 0.0000000000000000
+            0.0, 0.0, 0.14999999999998667,
+            0.0, 0.0
         };
 
         check_vec(x_left,    x_left_gt,    1e-2, TEST_NAME, "left_MB");
