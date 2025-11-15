@@ -191,6 +191,8 @@ option(BUILD_COMMONROAD_TESTS "Build CommonRoad test executables" OFF)
 enable_testing()
 
 if(BUILD_COMMONROAD_TESTS)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+
     add_executable(test_derivatives
         tests/test_derivatives.cpp
     )
@@ -244,4 +246,18 @@ if(BUILD_COMMONROAD_TESTS)
             commonroad
     )
     add_test(NAME test_low_speed_safety COMMAND test_low_speed_safety)
+
+    add_executable(scenario_simulator
+        tests/scenario_simulator.cpp
+    )
+    target_link_libraries(scenario_simulator
+        PRIVATE
+            commonroad
+    )
+
+    add_test(NAME scenario_consistency
+        COMMAND Python3::Interpreter
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_scenario_consistency.py
+            --build-dir ${CMAKE_CURRENT_BINARY_DIR}
+    )
 endif()

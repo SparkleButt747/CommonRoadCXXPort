@@ -192,11 +192,17 @@ std::vector<double> vehicle_dynamics_std(const std::vector<double>& x,
     if (!front_negative) {
         d_omega_f = (1.0 / p.I_y_w) *
             (-p.R_w * F_xf + p.T_sb * T_B + p.T_se * T_E);
+        if (omega_f_state <= 0.0 && d_omega_f < 0.0) {
+            d_omega_f = 0.0;
+        }
     }
 
     if (!rear_negative) {
         d_omega_r = (1.0 / p.I_y_w) *
             (-p.R_w * F_xr + (1.0 - p.T_sb) * T_B + (1.0 - p.T_se) * T_E);
+        if (omega_r_state <= 0.0 && d_omega_r < 0.0) {
+            d_omega_r = 0.0;
+        }
     }
 
     // ---------------------------------------------------------------------
@@ -232,9 +238,8 @@ std::vector<double> vehicle_dynamics_std(const std::vector<double>& x,
     const double omega_f_clamped = front_negative ? 0.0 : omega_f_state;
     const double omega_r_clamped = rear_negative  ? 0.0 : omega_r_state;
 
-    const double step = (dt > 0.0) ? dt : kDefaultStdStep;
-    const double relaxation = -std::expm1(-step / kWheelRelaxationTime);
-    const double inv_tau = relaxation / step;
+    static_cast<void>(dt);  // Python gain is independent of the integration step
+    const double inv_tau = 1.0 / kWheelRelaxationTime;
     const double d_omega_f_ks = inv_tau * (u_wf / p.R_w - omega_f_clamped);
     const double d_omega_r_ks = inv_tau * (u_wr / p.R_w - omega_r_clamped);
 
