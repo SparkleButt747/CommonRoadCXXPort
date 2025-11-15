@@ -4,6 +4,8 @@ project(commonroad_cpp
     VERSION 0.1.0
     LANGUAGES CXX)
 
+include(GNUInstallDirs)
+
 # ------------------------------------------------------------
 # Global settings
 # ------------------------------------------------------------
@@ -65,6 +67,7 @@ endif()
 set(COMMONROAD_SRC_DIR     ${CMAKE_CURRENT_SOURCE_DIR}/src)
 set(COMMONROAD_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
 set(COMMONROAD_PARAM_DIR   ${CMAKE_CURRENT_SOURCE_DIR}/parameters)
+set(COMMONROAD_CONFIG_DIR  ${CMAKE_CURRENT_SOURCE_DIR}/config)
 
 add_library(commonroad STATIC
     # utils
@@ -111,20 +114,46 @@ add_library(commonroad STATIC
 
 target_include_directories(commonroad
     PUBLIC
-        ${COMMONROAD_INCLUDE_DIR}  # include/utils, include/vehiclemodels, include/vehicle
-        ${COMMONROAD_PARAM_DIR}    # vehicle_parameters.hpp, vehicle/parameters_vehicle*.hpp
+        $<BUILD_INTERFACE:${COMMONROAD_INCLUDE_DIR}>  # include/utils, include/vehiclemodels, include/vehicle, include/sim
+        $<BUILD_INTERFACE:${COMMONROAD_PARAM_DIR}>    # vehicle_parameters.hpp, vehicle/parameters_vehicle*.hpp
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_FULL_DATAROOTDIR}/commonroad/parameters>
 )
 
 # Define default root for parameter YAMLs as an absolute path
 target_compile_definitions(commonroad
     PUBLIC
-        COMMONROAD_PARAM_ROOT=\"${COMMONROAD_PARAM_DIR}\"
+        COMMONROAD_PARAM_ROOT="$<BUILD_INTERFACE:${COMMONROAD_PARAM_DIR}>$<INSTALL_INTERFACE:${CMAKE_INSTALL_FULL_DATAROOTDIR}/commonroad/parameters>"
 )
 
 # Link yaml-cpp into the core library
 target_link_libraries(commonroad
     PUBLIC
         yaml-cpp::yaml-cpp
+)
+
+install(TARGETS commonroad
+    EXPORT commonroadTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
+install(DIRECTORY ${COMMONROAD_INCLUDE_DIR}/
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+
+install(DIRECTORY ${COMMONROAD_PARAM_DIR}/
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/commonroad/parameters
+)
+
+install(DIRECTORY ${COMMONROAD_CONFIG_DIR}/
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/commonroad/config
+)
+
+install(EXPORT commonroadTargets
+    NAMESPACE commonroad::
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/cmake/commonroad
 )
 
 # ------------------------------------------------------------
@@ -159,6 +188,8 @@ endif()
 # Default OFF; enable with: cmake -DBUILD_COMMONROAD_TESTS=ON ..
 option(BUILD_COMMONROAD_TESTS "Build CommonRoad test executables" OFF)
 
+enable_testing()
+
 if(BUILD_COMMONROAD_TESTS)
     add_executable(test_derivatives
         tests/test_derivatives.cpp
@@ -167,6 +198,7 @@ if(BUILD_COMMONROAD_TESTS)
         PRIVATE
             commonroad
     )
+    add_test(NAME test_derivatives COMMAND test_derivatives)
 
     add_executable(test_zeroInitialVelocity
         tests/test_zeroInitialVelocity.cpp
@@ -175,6 +207,7 @@ if(BUILD_COMMONROAD_TESTS)
         PRIVATE
             commonroad
     )
+    add_test(NAME test_zeroInitialVelocity COMMAND test_zeroInitialVelocity)
 
     add_executable(test_vehicle
         tests/test_vehicle.cpp
@@ -183,6 +216,7 @@ if(BUILD_COMMONROAD_TESTS)
         PRIVATE
             commonroad
     )
+    add_test(NAME test_vehicle COMMAND test_vehicle)
 
     add_executable(test_steering_controller
         tests/test_steering_controller.cpp
@@ -191,6 +225,7 @@ if(BUILD_COMMONROAD_TESTS)
         PRIVATE
             commonroad
     )
+    add_test(NAME test_steering_controller COMMAND test_steering_controller)
 
     add_executable(test_longitudinal
         tests/test_longitudinal.cpp
@@ -199,6 +234,7 @@ if(BUILD_COMMONROAD_TESTS)
         PRIVATE
             commonroad
     )
+    add_test(NAME test_longitudinal COMMAND test_longitudinal)
 
     add_executable(test_low_speed_safety
         tests/test_low_speed_safety.cpp
@@ -207,4 +243,5 @@ if(BUILD_COMMONROAD_TESTS)
         PRIVATE
             commonroad
     )
+    add_test(NAME test_low_speed_safety COMMAND test_low_speed_safety)
 endif()
