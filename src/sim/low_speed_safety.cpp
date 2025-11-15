@@ -133,7 +133,7 @@ void LowSpeedSafety::apply(std::vector<double>& state, double speed, bool update
             double value = state[idx];
             if (value <= 0.0) {
                 state[idx] = 0.0;
-            } else if (update_latch && latch_active && value <= config_.stop_speed_epsilon) {
+            } else if (latch_active && value <= config_.stop_speed_epsilon) {
                 state[idx] = 0.0;
             }
         }
