@@ -13,7 +13,8 @@ struct ModelInterface {
     using State = std::vector<double>;
     using Control = std::vector<double>;
     using InitFunction = std::function<State(const State&, const VehicleParameters&)>;
-    using DynamicsFunction = std::function<State(const State&, const Control&, const VehicleParameters&)>;
+    using DynamicsFunction =
+        std::function<State(const State&, const Control&, const VehicleParameters&, double)>;
     using SpeedFunction = std::function<double(const State&, const VehicleParameters&)>;
 
     InitFunction init_fn;

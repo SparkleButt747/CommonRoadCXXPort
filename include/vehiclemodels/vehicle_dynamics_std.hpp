@@ -28,6 +28,11 @@ namespace vehiclemodels {
  */
 std::vector<double> vehicle_dynamics_std(const std::vector<double>& x,
                                          const std::vector<double>& u_init,
+                                         const VehicleParameters& p,
+                                         double dt);
+
+std::vector<double> vehicle_dynamics_std(const std::vector<double>& x,
+                                         const std::vector<double>& u_init,
                                          const VehicleParameters& p);
 
 } // namespace vehiclemodels

@@ -13,6 +13,11 @@
 
 namespace vehiclemodels {
 
+namespace {
+constexpr double kWheelRelaxationTime = 0.02;
+constexpr double kDefaultStdStep = 0.01;
+} // namespace
+
 using utils::steering_constraints;
 using utils::acceleration_constraints;
 using utils::vehicle_dynamics_ks_cog;
@@ -23,7 +28,8 @@ using utils::formula_lateral_comb;
 
 std::vector<double> vehicle_dynamics_std(const std::vector<double>& x,
                                          const std::vector<double>& u_init,
-                                         const VehicleParameters& p)
+                                         const VehicleParameters& p,
+                                         double dt)
 {
     // Sanity: expect 9 states and 2 inputs
     if (x.size() != 9 || u_init.size() != 2) {
@@ -226,8 +232,11 @@ std::vector<double> vehicle_dynamics_std(const std::vector<double>& x,
     const double omega_f_clamped = front_negative ? 0.0 : omega_f_state;
     const double omega_r_clamped = rear_negative  ? 0.0 : omega_r_state;
 
-    const double d_omega_f_ks = (1.0 / 0.02) * (u_wf / p.R_w - omega_f_clamped);
-    const double d_omega_r_ks = (1.0 / 0.02) * (u_wr / p.R_w - omega_r_clamped);
+    const double step = (dt > 0.0) ? dt : kDefaultStdStep;
+    const double relaxation = -std::expm1(-step / kWheelRelaxationTime);
+    const double inv_tau = relaxation / step;
+    const double d_omega_f_ks = inv_tau * (u_wf / p.R_w - omega_f_clamped);
+    const double d_omega_r_ks = inv_tau * (u_wr / p.R_w - omega_r_clamped);
 
     // ---------------------------------------------------------------------
     // Weights for mixing both models
@@ -263,6 +272,13 @@ std::vector<double> vehicle_dynamics_std(const std::vector<double>& x,
     f[8] = w_std * d_omega_r  + w_ks * d_omega_r_ks;
 
     return f;
+}
+
+std::vector<double> vehicle_dynamics_std(const std::vector<double>& x,
+                                         const std::vector<double>& u_init,
+                                         const VehicleParameters& p)
+{
+    return vehicle_dynamics_std(x, u_init, p, kDefaultStdStep);
 }
 
 } // namespace vehiclemodels
