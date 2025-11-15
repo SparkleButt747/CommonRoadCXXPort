@@ -76,6 +76,7 @@ struct Simulation {
     int                                     vehicle_id;
     vm::VehicleParameters                   params;
     std::vector<double>                     x;     // state
+    std::vector<double>                     x0;    // initial state
     std::vector<double>                     u;     // input [steer_rate, accel]
     float                                   dt;    // integration step [s]
     std::unique_ptr<vsim::VehicleSimulator> integrator;
@@ -295,21 +296,28 @@ static vsim::LowSpeedSafety build_low_speed_safety(ModelType model,
 // --------------------------------------------------------------
 
 struct Telemetry {
-    double speed;
-    double v_long;
-    double v_lat;
-    double v_global_x;
-    double v_global_y;
-    double a_long;
-    double a_lat;
+    double speed          = 0.0;
+    double v_long         = 0.0;
+    double v_lat          = 0.0;
+    double v_global_x     = 0.0;
+    double v_global_y     = 0.0;
+    double a_long         = 0.0;
+    double a_lat          = 0.0;
+    bool   low_speed_engaged = false;
+    double soc            = 0.0;
 };
 
-static Telemetry compute_telemetry(const Simulation& sim)
+static Telemetry compute_telemetry(const Simulation& sim,
+                                   const longi::ControllerOutput& accel_output,
+                                   const longi::FinalAccelController* accel_controller)
 {
     Telemetry t{};
 
+    const auto* simulator = sim.integrator.get();
+    const auto& state     = simulator ? simulator->state() : sim.x;
+
     const double wheelbase = sim.params.a + sim.params.b;
-    const double delta     = (sim.x.size() > 2) ? sim.x[2] : 0.0;
+    const double delta     = (state.size() > 2) ? state[2] : 0.0;
 
     double v_long = 0.0;
     double v_lat  = 0.0;
@@ -320,34 +328,34 @@ static Telemetry compute_telemetry(const Simulation& sim)
         case ModelType::KS_REAR:
         case ModelType::KS_COG:
         case ModelType::KST:
-            if (sim.x.size() >= 5) {
-                v_long = sim.x[3];
-                yaw    = sim.x[4];
+            if (state.size() >= 5) {
+                v_long = state[3];
+                yaw    = state[4];
             }
             beta = 0.0;
             break;
 
         case ModelType::ST:
-            if (sim.x.size() >= 7) {
-                v_long = sim.x[3];
-                yaw    = sim.x[4];
-                beta   = sim.x[6];
+            if (state.size() >= 7) {
+                v_long = state[3];
+                yaw    = state[4];
+                beta   = state[6];
             }
             break;
 
         case ModelType::STD:
-            if (sim.x.size() >= 9) {
-                v_long = sim.x[3];
-                yaw    = sim.x[4];
-                beta   = sim.x[6];
+            if (state.size() >= 9) {
+                v_long = state[3];
+                yaw    = state[4];
+                beta   = state[6];
             }
             break;
 
         case ModelType::MB:
-            if (sim.x.size() >= 11) {
-                v_long = sim.x[3];
-                v_lat  = sim.x[10];
-                yaw    = sim.x[4];
+            if (state.size() >= 11) {
+                v_long = state[3];
+                v_lat  = state[10];
+                yaw    = state[4];
             }
             if (std::abs(v_long) > 1e-6 || std::abs(v_lat) > 1e-6) {
                 beta = std::atan2(v_lat, v_long);
@@ -364,16 +372,12 @@ static Telemetry compute_telemetry(const Simulation& sim)
     t.v_global_x        = speed * std::cos(heading);
     t.v_global_y        = speed * std::sin(heading);
 
-    if (sim.u.size() > 1) {
-        t.a_long = sim.u[1];
-    } else {
-        t.a_long = 0.0;
-    }
+    t.a_long = accel_output.acceleration;
 
     switch (sim.model) {
         case ModelType::MB:
-            if (sim.x.size() > 5) {
-                t.a_lat = v_long * sim.x[5];
+            if (state.size() > 5) {
+                t.a_lat = v_long * state[5];
             }
             break;
         default:
@@ -385,13 +389,22 @@ static Telemetry compute_telemetry(const Simulation& sim)
             break;
     }
 
+    if (simulator) {
+        t.speed             = std::max(0.0, simulator->speed());
+        t.low_speed_engaged = simulator->safety().engaged();
+    }
+
+    if (accel_controller) {
+        t.soc = accel_controller->powertrain().soc();
+    }
+
     return t;
 }
 
 static double simulation_speed(const Simulation& sim)
 {
     if (sim.integrator) {
-        return sim.integrator->speed();
+        return std::max(0.0, sim.integrator->speed());
     }
     switch (sim.model) {
         case ModelType::MB:
@@ -426,10 +439,11 @@ struct Pose {
 static Pose extract_pose(const Simulation& sim)
 {
     Pose pose{};
-    if (sim.x.size() >= 5) {
-        pose.x   = sim.x[0];
-        pose.y   = sim.x[1];
-        pose.yaw = sim.x[4];
+    const auto& state = sim.integrator ? sim.integrator->state() : sim.x;
+    if (state.size() >= 5) {
+        pose.x   = state[0];
+        pose.y   = state[1];
+        pose.yaw = state[4];
     }
     return pose;
 }
@@ -518,7 +532,8 @@ static void reset_simulation(Simulation& sim,
 
     // Pass the core state (before any init_* expansion) to the simulator so
     // that model-specific init functions are applied exactly once.
-    sim.x = core;
+    sim.x0 = core;
+    sim.x  = core;
 
     auto iface  = build_model_interface(model);
     auto safety = build_low_speed_safety(model, sim.params, safety_cfg);
@@ -527,7 +542,7 @@ static void reset_simulation(Simulation& sim,
         sim.params,
         static_cast<double>(sim.dt),
         std::move(safety));
-    sim.integrator->reset(sim.x);
+    sim.integrator->reset(sim.x0);
     sim.x = sim.integrator->state();
 }
 
@@ -694,6 +709,7 @@ int main(int, char**)
     double sim_time = 0.0;
 
     while (running) {
+        bool request_reset = false;
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             ImGui_ImplSDL2_ProcessEvent(&event);
@@ -703,9 +719,29 @@ int main(int, char**)
                 event.window.event == SDL_WINDOWEVENT_CLOSE &&
                 event.window.windowID == SDL_GetWindowID(window))
                 running = false;
-            if (event.type == SDL_KEYDOWN &&
-                event.key.keysym.sym == SDLK_ESCAPE)
-                running = false;
+            if (event.type == SDL_KEYDOWN) {
+                if (event.key.keysym.sym == SDLK_ESCAPE) {
+                    running = false;
+                } else if (event.key.keysym.sym == SDLK_r) {
+                    request_reset = true;
+                }
+            }
+        }
+
+        if (request_reset) {
+            if (sim.integrator) {
+                sim.integrator->reset(sim.x0);
+                sim.x = sim.integrator->state();
+            }
+            sim.u.assign(2, 0.0);
+            try {
+                sync_controllers();
+            } catch (const std::exception& e) {
+                return shutdown_with_message(e.what());
+            }
+            sim_time     = 0.0;
+            prev_counter = SDL_GetPerformanceCounter();
+            continue;
         }
 
         const Uint8* keys = SDL_GetKeyboardState(nullptr);
@@ -717,6 +753,9 @@ int main(int, char**)
         if (keys[SDL_SCANCODE_SPACE])                          brake_cmd = 1.0;
         throttle_cmd = std::clamp(throttle_cmd, 0.0, 1.0);
         brake_cmd    = std::clamp(brake_cmd, 0.0, 1.0);
+        if (brake_cmd > 0.0) {
+            throttle_cmd = 0.0;
+        }
 
         double steer_nudge = 0.0;
         if (keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_LEFT])  steer_nudge += 1.0;
@@ -729,13 +768,15 @@ int main(int, char**)
         steer_state = steer_controller.update(wheel_state.angle, current_delta, sim.dt);
         sim.u[0] = steer_state.rate;
 
-        const double speed = simulation_speed(sim);
+        const double speed = std::max(0.0, simulation_speed(sim));
         if (accel_controller) {
             longi::DriverIntent intent{};
             intent.throttle = throttle_cmd;
             intent.brake    = brake_cmd;
             accel_output    = accel_controller->step(intent, speed, sim.dt);
-            sim.u[1]        = accel_output.acceleration;
+            sim.u[1]        = std::clamp(accel_output.acceleration,
+                                         accel_cfg.accel_min,
+                                         accel_cfg.accel_max);
         } else {
             const double accel_raw = accel_cfg.accel_max * throttle_cmd + accel_cfg.accel_min * (-brake_cmd);
             const double accel     = std::clamp(accel_raw, accel_cfg.accel_min, accel_cfg.accel_max);
@@ -781,6 +822,8 @@ int main(int, char**)
                 } catch (const std::exception& e) {
                     return shutdown_with_message(e.what());
                 }
+                sim_time     = 0.0;
+                prev_counter = SDL_GetPerformanceCounter();
             }
 
             const char* vehicle_items[] = {
@@ -797,6 +840,8 @@ int main(int, char**)
                 } catch (const std::exception& e) {
                     return shutdown_with_message(e.what());
                 }
+                sim_time     = 0.0;
+                prev_counter = SDL_GetPerformanceCounter();
             }
 
             if (ImGui::SliderFloat("dt [s]", &sim.dt, 0.001f, 0.05f, "%.3f")) {
@@ -837,7 +882,7 @@ int main(int, char**)
                 ImGui::Text("State size: %zu", sim.x.size());
             }
 
-            Telemetry tel = compute_telemetry(sim);
+            Telemetry tel = compute_telemetry(sim, accel_output, accel_controller.get());
             ImGui::Separator();
             ImGui::Text("Telemetry:");
             ImGui::Text("Speed:     %8.3f m/s",  tel.speed);
@@ -847,6 +892,12 @@ int main(int, char**)
             ImGui::Text("v_global.y %8.3f m/s",  tel.v_global_y);
             ImGui::Text("a_long:    %8.3f m/s^2", tel.a_long);
             ImGui::Text("a_lat:     %8.3f m/s^2", tel.a_lat);
+            ImGui::Text("Low-speed safety: %s", tel.low_speed_engaged ? "ENGAGED" : "Released");
+            if (accel_controller) {
+                ImGui::Text("Battery SOC:  %6.2f %%", tel.soc * 100.0);
+            } else {
+                ImGui::Text("Battery SOC:      N/A");
+            }
 
             ImGui::End();
         }
