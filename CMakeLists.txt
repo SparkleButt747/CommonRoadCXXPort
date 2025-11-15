@@ -97,6 +97,7 @@ add_library(commonroad STATIC
 
     # init functions (ports of Python init_*)
     ${COMMONROAD_SRC_DIR}/vehiclemodels/init_ks.cpp
+    ${COMMONROAD_SRC_DIR}/vehiclemodels/init_kst.cpp
     ${COMMONROAD_SRC_DIR}/vehiclemodels/init_st.cpp
     ${COMMONROAD_SRC_DIR}/vehiclemodels/init_mb.cpp
     ${COMMONROAD_SRC_DIR}/vehiclemodels/init_std.cpp
