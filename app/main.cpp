@@ -516,24 +516,9 @@ static void reset_simulation(Simulation& sim,
         0.0   // beta
     };
 
-    switch (model) {
-        case ModelType::KS_REAR:
-        case ModelType::KS_COG:
-            sim.x = vm::init_ks(core);          // length 5
-            break;
-        case ModelType::KST:
-            sim.x = vm::init_kst(core, 0.0);    // length 6
-            break;
-        case ModelType::MB:
-            sim.x = vm::init_mb(core, sim.params); // length 29
-            break;
-        case ModelType::ST:
-            sim.x = vm::init_st(core);          // length 7
-            break;
-        case ModelType::STD:
-            sim.x = vm::init_std(core, sim.params); // length 9
-            break;
-    }
+    // Pass the core state (before any init_* expansion) to the simulator so
+    // that model-specific init functions are applied exactly once.
+    sim.x = core;
 
     auto iface  = build_model_interface(model);
     auto safety = build_low_speed_safety(model, sim.params, safety_cfg);
