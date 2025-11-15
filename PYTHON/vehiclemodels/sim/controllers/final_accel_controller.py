@@ -85,10 +85,14 @@ class FinalAccelController:
         throttle_target = min(max(intent.throttle, 0.0), 1.0)
         brake_target = min(max(intent.brake, 0.0), 1.0)
 
-        self.throttle += dt / tau_throttle * (throttle_target - self.throttle)
-        self.brake += dt / tau_brake * (brake_target - self.brake)
+        if brake_target > 0.0:
+            # Brake-throttle override prevents residual drive torque while braking.
+            self.throttle = 0.0
+        else:
+            self.throttle += dt / tau_throttle * (throttle_target - self.throttle)
+            self.throttle = min(max(self.throttle, 0.0), 1.0)
 
-        self.throttle = min(max(self.throttle, 0.0), 1.0)
+        self.brake += dt / tau_brake * (brake_target - self.brake)
         self.brake = min(max(self.brake, 0.0), 1.0)
 
     # ------------------------------------------------------------------
