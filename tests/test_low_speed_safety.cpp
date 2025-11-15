@@ -215,6 +215,120 @@ void test_rk4_predictor_does_not_latch_above_engage()
     assert(state[2] > 0.0);
 }
 
+void test_std_predictor_wheel_speeds_zeroed_when_engaged()
+{
+    vsim::LowSpeedSafetyConfig cfg{};
+    cfg.engage_speed        = 0.4;
+    cfg.release_speed       = 0.8;
+    cfg.yaw_rate_limit      = 0.5;
+    cfg.slip_angle_limit    = 0.35;
+    cfg.stop_speed_epsilon  = 0.05;
+
+    vehiclemodels::VehicleParameters params{};
+    params.a = 1.4;
+    params.b = 1.3;
+
+    vsim::LowSpeedSafety safety(
+        cfg,
+        /*longitudinal_index=*/3,
+        /*lateral_index=*/std::nullopt,
+        /*yaw_rate_index=*/std::nullopt,
+        /*slip_index=*/std::nullopt,
+        /*wheel_speed_indices=*/{7, 8},
+        /*steering_index=*/2,
+        /*wheelbase=*/params.a + params.b,
+        /*rear_length=*/params.b);
+
+    std::vector<double> state(9, 0.0);
+    state[7] = 0.04;
+    state[8] = 0.02;
+
+    const double disengaged_speed = cfg.engage_speed + 0.05;
+    safety.apply(state, disengaged_speed, true);
+    assert(!safety.engaged());
+    assert(state[7] > 0.0);
+    assert(state[8] > 0.0);
+
+    const double engaged_speed = cfg.engage_speed - 1e-3;
+    safety.apply(state, engaged_speed, true);
+    assert(safety.engaged());
+    assert(state[7] == 0.0);
+    assert(state[8] == 0.0);
+
+    auto ensure_predictor_zero = [&](double v7, double v8) {
+        state[7] = v7;
+        state[8] = v8;
+        safety.apply(state, engaged_speed, false);
+        assert(state[7] == 0.0);
+        assert(state[8] == 0.0);
+    };
+
+    ensure_predictor_zero(0.03, 0.01);
+    ensure_predictor_zero(0.02, 0.02);
+    ensure_predictor_zero(0.01, 0.04);
+}
+
+void test_mb_predictor_wheel_speeds_zeroed_when_engaged()
+{
+    vsim::LowSpeedSafetyConfig cfg{};
+    cfg.engage_speed        = 0.4;
+    cfg.release_speed       = 0.8;
+    cfg.yaw_rate_limit      = 0.5;
+    cfg.slip_angle_limit    = 0.35;
+    cfg.stop_speed_epsilon  = 0.05;
+
+    vehiclemodels::VehicleParameters params{};
+    params.a = 1.4;
+    params.b = 1.3;
+
+    vsim::LowSpeedSafety safety(
+        cfg,
+        /*longitudinal_index=*/3,
+        /*lateral_index=*/10,
+        /*yaw_rate_index=*/std::nullopt,
+        /*slip_index=*/std::nullopt,
+        /*wheel_speed_indices=*/{23, 24, 25, 26},
+        /*steering_index=*/2,
+        /*wheelbase=*/params.a + params.b,
+        /*rear_length=*/params.b);
+
+    std::vector<double> state(27, 0.0);
+    state[23] = 0.04;
+    state[24] = 0.03;
+    state[25] = 0.02;
+    state[26] = 0.01;
+
+    const double disengaged_speed = cfg.engage_speed + 0.05;
+    safety.apply(state, disengaged_speed, true);
+    assert(!safety.engaged());
+    assert(state[23] > 0.0);
+    assert(state[24] > 0.0);
+    assert(state[25] > 0.0);
+    assert(state[26] > 0.0);
+
+    const double engaged_speed = cfg.engage_speed - 1e-3;
+    safety.apply(state, engaged_speed, true);
+    assert(safety.engaged());
+    for (int idx : {23, 24, 25, 26}) {
+        assert(state[idx] == 0.0);
+    }
+
+    auto ensure_predictor_zero = [&](double v23, double v24, double v25, double v26) {
+        state[23] = v23;
+        state[24] = v24;
+        state[25] = v25;
+        state[26] = v26;
+        safety.apply(state, engaged_speed, false);
+        for (int idx : {23, 24, 25, 26}) {
+            assert(state[idx] == 0.0);
+        }
+    };
+
+    ensure_predictor_zero(0.03, 0.02, 0.01, 0.01);
+    ensure_predictor_zero(0.02, 0.02, 0.02, 0.02);
+    ensure_predictor_zero(0.01, 0.03, 0.04, 0.01);
+}
+
 int main()
 {
     try {
@@ -222,6 +336,8 @@ int main()
         test_latch_release_thresholds();
         test_vehicle_simulator_stop();
         test_rk4_predictor_does_not_latch_above_engage();
+        test_std_predictor_wheel_speeds_zeroed_when_engaged();
+        test_mb_predictor_wheel_speeds_zeroed_when_engaged();
     } catch (const std::exception& ex) {
         std::cerr << "Test raised exception: " << ex.what() << '\n';
         return 1;
