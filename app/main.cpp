@@ -99,6 +99,10 @@ static vsim::ModelInterface build_model_interface(ModelType model)
     vsim::ModelInterface iface{};
     switch (model) {
         case ModelType::KS_REAR:
+            iface.init_fn = [](const std::vector<double>& init_state,
+                               const vm::VehicleParameters&) {
+                return vm::init_ks(init_state);
+            };
             iface.dynamics_fn = [](const std::vector<double>& x,
                                    const std::vector<double>& u,
                                    const vm::VehicleParameters& params) {
@@ -111,6 +115,10 @@ static vsim::ModelInterface build_model_interface(ModelType model)
             break;
 
         case ModelType::KS_COG:
+            iface.init_fn = [](const std::vector<double>& init_state,
+                               const vm::VehicleParameters&) {
+                return vm::init_ks(init_state);
+            };
             iface.dynamics_fn = [](const std::vector<double>& x,
                                    const std::vector<double>& u,
                                    const vm::VehicleParameters& params) {
@@ -135,6 +143,14 @@ static vsim::ModelInterface build_model_interface(ModelType model)
             break;
 
         case ModelType::KST:
+            iface.init_fn = [](const std::vector<double>& init_state,
+                               const vm::VehicleParameters&) {
+                std::vector<double> core(5, 0.0);
+                const std::size_t copy = std::min<std::size_t>(core.size(), init_state.size());
+                std::copy_n(init_state.begin(), copy, core.begin());
+                const double alpha0 = (init_state.size() > 5) ? init_state[5] : 0.0;
+                return vm::init_kst(core, alpha0);
+            };
             iface.dynamics_fn = [](const std::vector<double>& x,
                                    const std::vector<double>& u,
                                    const vm::VehicleParameters& params) {
@@ -147,6 +163,10 @@ static vsim::ModelInterface build_model_interface(ModelType model)
             break;
 
         case ModelType::MB:
+            iface.init_fn = [](const std::vector<double>& init_state,
+                               const vm::VehicleParameters& params) {
+                return vm::init_mb(init_state, params);
+            };
             iface.dynamics_fn = [](const std::vector<double>& x,
                                    const std::vector<double>& u,
                                    const vm::VehicleParameters& params) {
@@ -165,6 +185,10 @@ static vsim::ModelInterface build_model_interface(ModelType model)
             break;
 
         case ModelType::ST:
+            iface.init_fn = [](const std::vector<double>& init_state,
+                               const vm::VehicleParameters&) {
+                return vm::init_st(init_state);
+            };
             iface.dynamics_fn = [](const std::vector<double>& x,
                                    const std::vector<double>& u,
                                    const vm::VehicleParameters& params) {
@@ -177,6 +201,10 @@ static vsim::ModelInterface build_model_interface(ModelType model)
             break;
 
         case ModelType::STD:
+            iface.init_fn = [](const std::vector<double>& init_state,
+                               const vm::VehicleParameters& params) {
+                return vm::init_std(init_state, params);
+            };
             iface.dynamics_fn = [](const std::vector<double>& x,
                                    const std::vector<double>& u,
                                    const vm::VehicleParameters& params) {
@@ -488,24 +516,9 @@ static void reset_simulation(Simulation& sim,
         0.0   // beta
     };
 
-    switch (model) {
-        case ModelType::KS_REAR:
-        case ModelType::KS_COG:
-            sim.x = vm::init_ks(core);          // length 5
-            break;
-        case ModelType::KST:
-            sim.x = vm::init_kst(core, 0.0);    // length 6
-            break;
-        case ModelType::MB:
-            sim.x = vm::init_mb(core, sim.params); // length 29
-            break;
-        case ModelType::ST:
-            sim.x = vm::init_st(core);          // length 7
-            break;
-        case ModelType::STD:
-            sim.x = vm::init_std(core, sim.params); // length 9
-            break;
-    }
+    // Pass the core state (before any init_* expansion) to the simulator so
+    // that model-specific init functions are applied exactly once.
+    sim.x = core;
 
     auto iface  = build_model_interface(model);
     auto safety = build_low_speed_safety(model, sim.params, safety_cfg);
