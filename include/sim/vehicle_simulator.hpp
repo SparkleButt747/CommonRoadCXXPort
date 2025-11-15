@@ -12,13 +12,18 @@ namespace vehiclemodels::sim {
 struct ModelInterface {
     using State = std::vector<double>;
     using Control = std::vector<double>;
+    using InitFunction = std::function<State(const State&, const VehicleParameters&)>;
     using DynamicsFunction = std::function<State(const State&, const Control&, const VehicleParameters&)>;
     using SpeedFunction = std::function<double(const State&, const VehicleParameters&)>;
 
+    InitFunction init_fn;
     DynamicsFunction dynamics_fn;
     SpeedFunction    speed_fn;
 
-    bool valid() const { return static_cast<bool>(dynamics_fn) && static_cast<bool>(speed_fn); }
+    bool valid() const
+    {
+        return static_cast<bool>(init_fn) && static_cast<bool>(dynamics_fn) && static_cast<bool>(speed_fn);
+    }
 };
 
 class VehicleSimulator {
@@ -30,7 +35,7 @@ public:
 
     void reset(const std::vector<double>& initial_state);
 
-    const std::vector<double>& state() const { return state_; }
+    const std::vector<double>& state() const;
     double speed() const;
 
     const std::vector<double>& step(const std::vector<double>& control);
@@ -47,6 +52,7 @@ private:
     double dt_ = 0.0;
     LowSpeedSafety safety_;
     std::vector<double> state_;
+    bool ready_ = false;
 
     void ensure_ready() const;
     std::vector<double> add_scaled(const std::vector<double>& base,

@@ -11,14 +11,17 @@ void LowSpeedSafetyConfig::validate() const
     if (engage_speed < 0.0) {
         throw std::invalid_argument("engage_speed must be non-negative");
     }
+    if (release_speed <= 0.0) {
+        throw std::invalid_argument("release_speed must be positive");
+    }
     if (release_speed < engage_speed) {
         throw std::invalid_argument("release_speed must be >= engage_speed");
     }
-    if (yaw_rate_limit < 0.0) {
-        throw std::invalid_argument("yaw_rate_limit must be non-negative");
+    if (yaw_rate_limit <= 0.0) {
+        throw std::invalid_argument("yaw_rate_limit must be positive");
     }
-    if (slip_angle_limit < 0.0) {
-        throw std::invalid_argument("slip_angle_limit must be non-negative");
+    if (slip_angle_limit <= 0.0) {
+        throw std::invalid_argument("slip_angle_limit must be positive");
     }
     if (stop_speed_epsilon < 0.0) {
         throw std::invalid_argument("stop_speed_epsilon must be non-negative");

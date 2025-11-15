@@ -21,15 +21,22 @@ VehicleSimulator::VehicleSimulator(ModelInterface model,
 
 void VehicleSimulator::reset(const std::vector<double>& initial_state)
 {
-    state_ = initial_state;
     safety_.reset();
+    state_ = model_.init_fn(initial_state, params_);
     apply_safety(state_, true);
+    ready_ = true;
 }
 
 double VehicleSimulator::speed() const
 {
     ensure_ready();
     return model_.speed_fn(state_, params_);
+}
+
+const std::vector<double>& VehicleSimulator::state() const
+{
+    ensure_ready();
+    return state_;
 }
 
 const std::vector<double>& VehicleSimulator::step(const std::vector<double>& control)
@@ -40,7 +47,7 @@ const std::vector<double>& VehicleSimulator::step(const std::vector<double>& con
     }
 
     const double dt = dt_;
-    const auto& current_state = state_;
+    const auto current_state = state_;
 
     auto [k1, current] = dynamics(current_state, control, true);
     state_ = current;
@@ -80,7 +87,7 @@ void VehicleSimulator::set_dt(double dt)
 
 void VehicleSimulator::ensure_ready() const
 {
-    if (state_.empty()) {
+    if (!ready_) {
         throw std::runtime_error("VehicleSimulator has not been initialised; call reset() first");
     }
 }

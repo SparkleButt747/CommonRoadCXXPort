@@ -99,6 +99,10 @@ static vsim::ModelInterface build_model_interface(ModelType model)
     vsim::ModelInterface iface{};
     switch (model) {
         case ModelType::KS_REAR:
+            iface.init_fn = [](const std::vector<double>& init_state,
+                               const vm::VehicleParameters&) {
+                return vm::init_ks(init_state);
+            };
             iface.dynamics_fn = [](const std::vector<double>& x,
                                    const std::vector<double>& u,
                                    const vm::VehicleParameters& params) {
@@ -111,6 +115,10 @@ static vsim::ModelInterface build_model_interface(ModelType model)
             break;
 
         case ModelType::KS_COG:
+            iface.init_fn = [](const std::vector<double>& init_state,
+                               const vm::VehicleParameters&) {
+                return vm::init_ks(init_state);
+            };
             iface.dynamics_fn = [](const std::vector<double>& x,
                                    const std::vector<double>& u,
                                    const vm::VehicleParameters& params) {
@@ -135,6 +143,14 @@ static vsim::ModelInterface build_model_interface(ModelType model)
             break;
 
         case ModelType::KST:
+            iface.init_fn = [](const std::vector<double>& init_state,
+                               const vm::VehicleParameters&) {
+                std::vector<double> core(5, 0.0);
+                const std::size_t copy = std::min<std::size_t>(core.size(), init_state.size());
+                std::copy_n(init_state.begin(), copy, core.begin());
+                const double alpha0 = (init_state.size() > 5) ? init_state[5] : 0.0;
+                return vm::init_kst(core, alpha0);
+            };
             iface.dynamics_fn = [](const std::vector<double>& x,
                                    const std::vector<double>& u,
                                    const vm::VehicleParameters& params) {
@@ -147,6 +163,10 @@ static vsim::ModelInterface build_model_interface(ModelType model)
             break;
 
         case ModelType::MB:
+            iface.init_fn = [](const std::vector<double>& init_state,
+                               const vm::VehicleParameters& params) {
+                return vm::init_mb(init_state, params);
+            };
             iface.dynamics_fn = [](const std::vector<double>& x,
                                    const std::vector<double>& u,
                                    const vm::VehicleParameters& params) {
@@ -165,6 +185,10 @@ static vsim::ModelInterface build_model_interface(ModelType model)
             break;
 
         case ModelType::ST:
+            iface.init_fn = [](const std::vector<double>& init_state,
+                               const vm::VehicleParameters&) {
+                return vm::init_st(init_state);
+            };
             iface.dynamics_fn = [](const std::vector<double>& x,
                                    const std::vector<double>& u,
                                    const vm::VehicleParameters& params) {
@@ -177,6 +201,10 @@ static vsim::ModelInterface build_model_interface(ModelType model)
             break;
 
         case ModelType::STD:
+            iface.init_fn = [](const std::vector<double>& init_state,
+                               const vm::VehicleParameters& params) {
+                return vm::init_std(init_state, params);
+            };
             iface.dynamics_fn = [](const std::vector<double>& x,
                                    const std::vector<double>& u,
                                    const vm::VehicleParameters& params) {
