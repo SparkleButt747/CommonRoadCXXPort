@@ -111,8 +111,11 @@ std::pair<std::vector<double>, std::vector<double>> VehicleSimulator::dynamics(c
                                                                                bool update_latch)
 {
     std::vector<double> sanitized = state;
-    apply_safety(sanitized, update_latch);
-    auto rhs = model_.dynamics_fn(sanitized, control, params_);
+    if (update_latch) {
+        apply_safety(sanitized, true);
+    }
+    const auto& rhs_state = update_latch ? sanitized : state;
+    auto rhs = model_.dynamics_fn(rhs_state, control, params_, dt_);
     return {std::move(rhs), std::move(sanitized)};
 }
 

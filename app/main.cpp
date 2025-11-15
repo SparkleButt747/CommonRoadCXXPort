@@ -106,7 +106,8 @@ static vsim::ModelInterface build_model_interface(ModelType model)
             };
             iface.dynamics_fn = [](const std::vector<double>& x,
                                    const std::vector<double>& u,
-                                   const vm::VehicleParameters& params) {
+                                   const vm::VehicleParameters& params,
+                                   double) {
                 return vm::vehicle_dynamics_ks(x, u, params);
             };
             iface.speed_fn = [](const std::vector<double>& state,
@@ -122,7 +123,8 @@ static vsim::ModelInterface build_model_interface(ModelType model)
             };
             iface.dynamics_fn = [](const std::vector<double>& x,
                                    const std::vector<double>& u,
-                                   const vm::VehicleParameters& params) {
+                                   const vm::VehicleParameters& params,
+                                   double) {
                 std::array<double, 5> x_arr{};
                 std::array<double, 2> u_arr{};
                 for (std::size_t i = 0; i < x_arr.size(); ++i) {
@@ -154,7 +156,8 @@ static vsim::ModelInterface build_model_interface(ModelType model)
             };
             iface.dynamics_fn = [](const std::vector<double>& x,
                                    const std::vector<double>& u,
-                                   const vm::VehicleParameters& params) {
+                                   const vm::VehicleParameters& params,
+                                   double) {
                 return vm::vehicle_dynamics_kst(x, u, params);
             };
             iface.speed_fn = [](const std::vector<double>& state,
@@ -170,7 +173,8 @@ static vsim::ModelInterface build_model_interface(ModelType model)
             };
             iface.dynamics_fn = [](const std::vector<double>& x,
                                    const std::vector<double>& u,
-                                   const vm::VehicleParameters& params) {
+                                   const vm::VehicleParameters& params,
+                                   double) {
                 return vm::vehicle_dynamics_mb(x, u, params);
             };
             iface.speed_fn = [](const std::vector<double>& state,
@@ -192,7 +196,8 @@ static vsim::ModelInterface build_model_interface(ModelType model)
             };
             iface.dynamics_fn = [](const std::vector<double>& x,
                                    const std::vector<double>& u,
-                                   const vm::VehicleParameters& params) {
+                                   const vm::VehicleParameters& params,
+                                   double) {
                 return vm::vehicle_dynamics_st(x, u, params);
             };
             iface.speed_fn = [](const std::vector<double>& state,
@@ -208,8 +213,9 @@ static vsim::ModelInterface build_model_interface(ModelType model)
             };
             iface.dynamics_fn = [](const std::vector<double>& x,
                                    const std::vector<double>& u,
-                                   const vm::VehicleParameters& params) {
-                return vm::vehicle_dynamics_std(x, u, params);
+                                   const vm::VehicleParameters& params,
+                                   double dt) {
+                return vm::vehicle_dynamics_std(x, u, params, dt);
             };
             iface.speed_fn = [](const std::vector<double>& state,
                                 const vm::VehicleParameters&) {

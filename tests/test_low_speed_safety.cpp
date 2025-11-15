@@ -94,7 +94,8 @@ void test_vehicle_simulator_stop()
     };
     model.dynamics_fn = [](const std::vector<double>& state,
                            const std::vector<double>& control,
-                           const vehiclemodels::VehicleParameters&) {
+                           const vehiclemodels::VehicleParameters&,
+                           double) {
         std::vector<double> rhs(state.size(), 0.0);
         if (state.size() > 0) {
             rhs[0] = (state.size() > 3) ? state[3] : 0.0;
@@ -183,7 +184,8 @@ void test_rk4_predictor_does_not_latch_above_engage()
     };
     model.dynamics_fn = [target_speed, rate](const std::vector<double>& state,
                                             const std::vector<double>&,
-                                            const vehiclemodels::VehicleParameters&) {
+                                            const vehiclemodels::VehicleParameters&,
+                                            double) {
         std::vector<double> rhs(state.size(), 0.0);
         if (!state.empty()) {
             const double speed = state[0];

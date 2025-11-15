@@ -69,6 +69,10 @@ void LowSpeedSafety::apply(std::vector<double>& state, double speed, bool update
         }
     }
 
+    if (!update_latch) {
+        return;
+    }
+
     const auto yaw_target = kinematic_yaw_rate(state, speed);
     const auto slip_target = kinematic_slip(state, speed);
     const auto lateral_target = kinematic_lateral_velocity(state, speed);
