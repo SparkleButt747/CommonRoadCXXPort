@@ -577,11 +577,10 @@ static void draw_car(SDL_Renderer* renderer,
 // Simulation init using init_*
 // --------------------------------------------------------------
 
-static void reset_simulation(Simulation& sim,
-                             ModelType model,
-                             int vehicle_id,
-                             const vsim::LowSpeedSafetyConfig& safety_cfg,
-                             const std::string& param_root = {})
+static vsim::LowSpeedSafetyConfig reset_simulation(Simulation& sim,
+                                                   ModelType model,
+                                                   int vehicle_id,
+                                                   const std::string& param_root = {})
 {
     sim.model      = model;
     sim.vehicle_id = vehicle_id;
@@ -605,8 +604,9 @@ static void reset_simulation(Simulation& sim,
     sim.x0 = core;
     sim.x  = core;
 
-    auto iface  = build_model_interface(model);
-    auto safety = build_low_speed_safety(model, sim.params, safety_cfg);
+    auto safety_cfg = vsim::load_low_speed_safety_config_for_model(model);
+    auto iface      = build_model_interface(model);
+    auto safety     = build_low_speed_safety(model, sim.params, safety_cfg);
     sim.integrator = std::make_unique<vsim::VehicleSimulator>(
         std::move(iface),
         sim.params,
@@ -614,6 +614,7 @@ static void reset_simulation(Simulation& sim,
         std::move(safety));
     sim.integrator->reset(sim.x0);
     sim.x = sim.integrator->state();
+    return safety_cfg;
 }
 
 // --------------------------------------------------------------
@@ -689,12 +690,14 @@ int main(int, char**)
 
     vsim::LowSpeedSafetyConfig low_speed_cfg{};
     try {
-        low_speed_cfg = vsim::load_default_low_speed_safety_config();
+        low_speed_cfg = reset_simulation(
+            sim,
+            currentModel,
+            vehicle_ids[currentVehicleIdx],
+            param_root);
     } catch (const std::exception& e) {
         return shutdown_with_message(e.what());
     }
-
-    reset_simulation(sim, currentModel, vehicle_ids[currentVehicleIdx], low_speed_cfg, param_root);
 
     vutils::SteeringConfig steering_config;
     try {
@@ -915,7 +918,16 @@ int main(int, char**)
                                    requested_dt,
                                    timing.max_dt);
                 }
-                reset_simulation(sim, currentModel, vehicle_ids[currentVehicleIdx], low_speed_cfg, param_root);
+                try {
+                    low_speed_cfg = reset_simulation(
+                        sim,
+                        currentModel,
+                        vehicle_ids[currentVehicleIdx],
+                        param_root);
+                } catch (const std::exception& e) {
+                    return shutdown_with_message(e.what());
+                }
+                accel_cfg.stop_speed_epsilon = low_speed_cfg.stop_speed_epsilon;
                 try {
                     sync_controllers();
                 } catch (const std::exception& e) {
@@ -933,7 +945,16 @@ int main(int, char**)
             };
             if (ImGui::Combo("Vehicle", &currentVehicleIdx,
                              vehicle_items, IM_ARRAYSIZE(vehicle_items))) {
-                reset_simulation(sim, currentModel, vehicle_ids[currentVehicleIdx], low_speed_cfg, param_root);
+                try {
+                    low_speed_cfg = reset_simulation(
+                        sim,
+                        currentModel,
+                        vehicle_ids[currentVehicleIdx],
+                        param_root);
+                } catch (const std::exception& e) {
+                    return shutdown_with_message(e.what());
+                }
+                accel_cfg.stop_speed_epsilon = low_speed_cfg.stop_speed_epsilon;
                 try {
                     sync_controllers();
                 } catch (const std::exception& e) {

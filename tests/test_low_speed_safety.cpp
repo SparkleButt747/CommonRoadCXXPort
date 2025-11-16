@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "sim/low_speed_safety.hpp"
+#include "sim/low_speed_safety_loader.hpp"
 #include "sim/vehicle_simulator.hpp"
 #include "vehicle_parameters.hpp"
 
@@ -329,6 +330,76 @@ void test_mb_predictor_wheel_speeds_zeroed_when_engaged()
     ensure_predictor_zero(0.01, 0.03, 0.04, 0.01);
 }
 
+void test_model_specific_config_loading()
+{
+    const auto default_cfg = vsim::load_default_low_speed_safety_config();
+    const auto std_cfg = vsim::load_low_speed_safety_config_for_model(vsim::ModelType::STD);
+    const auto mb_cfg  = vsim::load_low_speed_safety_config_for_model(vsim::ModelType::MB);
+    const auto st_cfg  = vsim::load_low_speed_safety_config_for_model(vsim::ModelType::ST);
+
+    assert(std::abs(std_cfg.release_speed - 0.8) < 1e-9);
+    assert(std::abs(std_cfg.engage_speed - 0.4) < 1e-9);
+    assert(std::abs(mb_cfg.release_speed - 0.6) < 1e-9);
+    assert(std::abs(mb_cfg.engage_speed - 0.35) < 1e-9);
+    assert(std::abs(mb_cfg.yaw_rate_limit - 0.7) < 1e-9);
+    assert(std::abs(mb_cfg.slip_angle_limit - 0.5) < 1e-9);
+    assert(std::abs(st_cfg.release_speed - default_cfg.release_speed) < 1e-9);
+}
+
+void test_mb_latch_releases_after_acceleration()
+{
+    const auto cfg = vsim::load_low_speed_safety_config_for_model(vsim::ModelType::MB);
+    vsim::LowSpeedSafety safety(
+        cfg,
+        /*longitudinal_index=*/0,
+        /*lateral_index=*/std::nullopt,
+        /*yaw_rate_index=*/std::nullopt,
+        /*slip_index=*/std::nullopt,
+        /*wheel_speed_indices=*/{},
+        /*steering_index=*/std::nullopt,
+        /*wheelbase=*/std::nullopt,
+        /*rear_length=*/std::nullopt);
+
+    vsim::ModelInterface model{};
+    model.init_fn = [](const std::vector<double>& state,
+                       const vehiclemodels::VehicleParameters&) {
+        return state;
+    };
+    model.dynamics_fn = [](const std::vector<double>& state,
+                           const std::vector<double>& control,
+                           const vehiclemodels::VehicleParameters&,
+                           double) {
+        std::vector<double> rhs(state.size(), 0.0);
+        if (!state.empty()) {
+            rhs[0] = (control.size() > 1) ? control[1] : 0.0;
+        }
+        return rhs;
+    };
+    model.speed_fn = [](const std::vector<double>& state,
+                        const vehiclemodels::VehicleParameters&) {
+        if (state.empty()) {
+            return 0.0;
+        }
+        return std::fabs(state[0]);
+    };
+
+    vehiclemodels::VehicleParameters params{};
+    vsim::VehicleSimulator simulator(std::move(model), params, 0.005, std::move(safety));
+    simulator.reset(std::vector<double>{0.0});
+
+    assert(simulator.safety().engaged());
+
+    bool released = false;
+    for (int step = 0; step < 400; ++step) {
+        simulator.step(std::vector<double>{0.0, 2.5});
+        if (!simulator.safety().engaged() && simulator.speed() >= cfg.release_speed) {
+            released = true;
+            break;
+        }
+    }
+    assert(released);
+}
+
 int main()
 {
     try {
@@ -338,6 +409,8 @@ int main()
         test_rk4_predictor_does_not_latch_above_engage();
         test_std_predictor_wheel_speeds_zeroed_when_engaged();
         test_mb_predictor_wheel_speeds_zeroed_when_engaged();
+        test_model_specific_config_loading();
+        test_mb_latch_releases_after_acceleration();
     } catch (const std::exception& ex) {
         std::cerr << "Test raised exception: " << ex.what() << '\n';
         return 1;

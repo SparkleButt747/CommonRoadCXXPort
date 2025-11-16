@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <stdexcept>
+#include <string>
 
 #include <yaml-cpp/yaml.h>
 
@@ -13,6 +14,19 @@ namespace vehiclemodels::sim {
 
 namespace {
 namespace fs = std::filesystem;
+
+const char* model_suffix(ModelType model)
+{
+    switch (model) {
+        case ModelType::KS_REAR: return "ks";
+        case ModelType::KS_COG:  return "ks_cog";
+        case ModelType::KST:     return "kst";
+        case ModelType::MB:      return "mb";
+        case ModelType::ST:      return "st";
+        case ModelType::STD:     return "std";
+    }
+    return "";
+}
 
 LowSpeedSafetyConfig parse_low_speed_config(const YAML::Node& node)
 {
@@ -46,6 +60,18 @@ LowSpeedSafetyConfig load_low_speed_safety_config(const std::filesystem::path& p
 LowSpeedSafetyConfig load_default_low_speed_safety_config()
 {
     return load_low_speed_safety_config("low_speed_safety.yaml");
+}
+
+LowSpeedSafetyConfig load_low_speed_safety_config_for_model(ModelType model)
+{
+    const std::string override_filename =
+        std::string("low_speed_safety_") + model_suffix(model) + ".yaml";
+    const fs::path override_path = resolve_path(override_filename);
+    if (!override_filename.empty() && fs::exists(override_path)) {
+        YAML::Node node = YAML::LoadFile(override_path.string());
+        return parse_low_speed_config(node);
+    }
+    return load_default_low_speed_safety_config();
 }
 
 } // namespace vehiclemodels::sim
