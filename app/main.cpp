@@ -37,30 +37,30 @@
 #include "vehicle/parameters_vehicle3.hpp"
 #include "vehicle/parameters_vehicle4.hpp"
 
-#include "vehiclemodels/vehicle_dynamics_ks.hpp"
-#include "vehiclemodels/vehicle_dynamics_kst.hpp"
-#include "vehiclemodels/vehicle_dynamics_mb.hpp"
-#include "vehiclemodels/vehicle_dynamics_st.hpp"
-#include "vehiclemodels/vehicle_dynamics_std.hpp"
-#include "utils/vehicle_dynamics_ks_cog.hpp"
-#include "utils/steering_controller.hpp"
+#include "models/vehiclemodels/vehicle_dynamics_ks.hpp"
+#include "models/vehiclemodels/vehicle_dynamics_kst.hpp"
+#include "models/vehiclemodels/vehicle_dynamics_mb.hpp"
+#include "models/vehiclemodels/vehicle_dynamics_st.hpp"
+#include "models/vehiclemodels/vehicle_dynamics_std.hpp"
+#include "models/vehicle_dynamics_ks_cog.hpp"
+#include "controllers/steering_controller.hpp"
 
-#include "vehiclemodels/init_ks.hpp"
-#include "vehiclemodels/init_kst.hpp"
-#include "vehiclemodels/init_mb.hpp"
-#include "vehiclemodels/init_st.hpp"
-#include "vehiclemodels/init_std.hpp"
+#include "models/vehiclemodels/init_ks.hpp"
+#include "models/vehiclemodels/init_kst.hpp"
+#include "models/vehiclemodels/init_mb.hpp"
+#include "models/vehiclemodels/init_st.hpp"
+#include "models/vehiclemodels/init_std.hpp"
 
-#include "sim/longitudinal/config_loader.hpp"
-#include "sim/longitudinal/final_accel_controller.hpp"
-#include "sim/low_speed_safety_loader.hpp"
-#include "sim/model_timing.hpp"
-#include "sim/vehicle_simulator.hpp"
+#include "controllers/longitudinal/config_loader.hpp"
+#include "controllers/longitudinal/final_accel_controller.hpp"
+#include "io/low_speed_safety_loader.hpp"
+#include "simulation/model_timing.hpp"
+#include "simulation/vehicle_simulator.hpp"
 
-namespace vm     = vehiclemodels;
-namespace vutils = vehiclemodels::utils;
-namespace longi  = vehiclemodels::sim::longitudinal;
-namespace vsim   = vehiclemodels::sim;
+namespace vm     = velox::models;
+namespace vutils = velox::controllers;
+namespace longi  = velox::controllers::longitudinal;
+namespace vsim   = velox::simulation;
 
 using ModelType = vsim::ModelType;
 

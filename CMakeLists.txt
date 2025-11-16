@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(commonroad_cpp
+project(velox
     VERSION 0.1.0
     LANGUAGES CXX)
 
@@ -59,101 +59,101 @@ if (EXISTS "${IMGUI_DIR}/imgui.cpp")
     )
 endif()
 
+
 # ------------------------------------------------------------
-# CommonRoad core library
+# Velox core library
 # ------------------------------------------------------------
 
-# Source roots
-set(COMMONROAD_SRC_DIR     ${CMAKE_CURRENT_SOURCE_DIR}/src)
-set(COMMONROAD_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
-set(COMMONROAD_PARAM_DIR   ${CMAKE_CURRENT_SOURCE_DIR}/parameters)
-set(COMMONROAD_CONFIG_DIR  ${CMAKE_CURRENT_SOURCE_DIR}/config)
+set(VELOX_LIB_DIR    ${CMAKE_CURRENT_SOURCE_DIR}/lib)
+set(VELOX_PARAM_DIR  ${CMAKE_CURRENT_SOURCE_DIR}/parameters)
+set(VELOX_CONFIG_DIR ${CMAKE_CURRENT_SOURCE_DIR}/config)
 
-add_library(commonroad STATIC
-    # utils
-    ${COMMONROAD_SRC_DIR}/utils/acceleration_constraints.cpp
-    ${COMMONROAD_SRC_DIR}/utils/longitudinal_parameters.cpp
-    ${COMMONROAD_SRC_DIR}/utils/steering_controller.cpp
-    ${COMMONROAD_SRC_DIR}/utils/steering_constraints.cpp
-    ${COMMONROAD_SRC_DIR}/utils/steering_parameters.cpp
-    ${COMMONROAD_SRC_DIR}/utils/tire_model.cpp
-    ${COMMONROAD_SRC_DIR}/utils/tireParameters.cpp
-    ${COMMONROAD_SRC_DIR}/utils/trailer_parameters.cpp
-    ${COMMONROAD_SRC_DIR}/utils/unitConversion.cpp
-    ${COMMONROAD_SRC_DIR}/utils/vehicle_dynamics_ks_cog.cpp
+add_library(velox STATIC
+    # controllers
+    ${VELOX_LIB_DIR}/controllers/steering_controller.cpp
+    ${VELOX_LIB_DIR}/controllers/longitudinal/aero.cpp
+    ${VELOX_LIB_DIR}/controllers/longitudinal/brake.cpp
+    ${VELOX_LIB_DIR}/controllers/longitudinal/config_loader.cpp
+    ${VELOX_LIB_DIR}/controllers/longitudinal/final_accel_controller.cpp
+    ${VELOX_LIB_DIR}/controllers/longitudinal/powertrain.cpp
+    ${VELOX_LIB_DIR}/controllers/longitudinal/rolling_resistance.cpp
 
-    # longitudinal sim
-    ${COMMONROAD_SRC_DIR}/sim/actuators/aero.cpp
-    ${COMMONROAD_SRC_DIR}/sim/actuators/brake.cpp
-    ${COMMONROAD_SRC_DIR}/sim/actuators/powertrain.cpp
-    ${COMMONROAD_SRC_DIR}/sim/actuators/rolling_resistance.cpp
-    ${COMMONROAD_SRC_DIR}/sim/controllers/final_accel_controller.cpp
-    ${COMMONROAD_SRC_DIR}/sim/longitudinal/config_loader.cpp
-    ${COMMONROAD_SRC_DIR}/sim/low_speed_safety.cpp
-    ${COMMONROAD_SRC_DIR}/sim/low_speed_safety_loader.cpp
-    ${COMMONROAD_SRC_DIR}/sim/vehicle_simulator.cpp
+    # IO
+    ${VELOX_LIB_DIR}/io/low_speed_safety_loader.cpp
 
-    # vehicle dynamics
-    ${COMMONROAD_SRC_DIR}/vehiclemodels/vehicle_dynamics_ks.cpp
-    ${COMMONROAD_SRC_DIR}/vehiclemodels/vehicle_dynamics_kst.cpp
-    ${COMMONROAD_SRC_DIR}/vehiclemodels/vehicle_dynamics_linearized.cpp
-    ${COMMONROAD_SRC_DIR}/vehiclemodels/vehicle_dynamics_mb.cpp
-    ${COMMONROAD_SRC_DIR}/vehiclemodels/vehicle_dynamics_st.cpp
-    ${COMMONROAD_SRC_DIR}/vehiclemodels/vehicle_dynamics_std.cpp
+    # models and utilities
+    ${VELOX_LIB_DIR}/models/acceleration_constraints.cpp
+    ${VELOX_LIB_DIR}/models/longitudinal_parameters.cpp
+    ${VELOX_LIB_DIR}/models/steering_constraints.cpp
+    ${VELOX_LIB_DIR}/models/steering_parameters.cpp
+    ${VELOX_LIB_DIR}/models/tire_model.cpp
+    ${VELOX_LIB_DIR}/models/tireParameters.cpp
+    ${VELOX_LIB_DIR}/models/trailer_parameters.cpp
+    ${VELOX_LIB_DIR}/models/unitConversion.cpp
+    ${VELOX_LIB_DIR}/models/vehicle_dynamics_ks_cog.cpp
 
-    # init functions (ports of Python init_*)
-    ${COMMONROAD_SRC_DIR}/vehiclemodels/init_ks.cpp
-    ${COMMONROAD_SRC_DIR}/vehiclemodels/init_kst.cpp
-    ${COMMONROAD_SRC_DIR}/vehiclemodels/init_st.cpp
-    ${COMMONROAD_SRC_DIR}/vehiclemodels/init_mb.cpp
-    ${COMMONROAD_SRC_DIR}/vehiclemodels/init_std.cpp
+    ${VELOX_LIB_DIR}/models/vehiclemodels/src/vehicle_dynamics_ks.cpp
+    ${VELOX_LIB_DIR}/models/vehiclemodels/src/vehicle_dynamics_kst.cpp
+    ${VELOX_LIB_DIR}/models/vehiclemodels/src/vehicle_dynamics_linearized.cpp
+    ${VELOX_LIB_DIR}/models/vehiclemodels/src/vehicle_dynamics_mb.cpp
+    ${VELOX_LIB_DIR}/models/vehiclemodels/src/vehicle_dynamics_st.cpp
+    ${VELOX_LIB_DIR}/models/vehiclemodels/src/vehicle_dynamics_std.cpp
+
+    ${VELOX_LIB_DIR}/models/vehiclemodels/src/init_ks.cpp
+    ${VELOX_LIB_DIR}/models/vehiclemodels/src/init_kst.cpp
+    ${VELOX_LIB_DIR}/models/vehiclemodels/src/init_st.cpp
+    ${VELOX_LIB_DIR}/models/vehiclemodels/src/init_mb.cpp
+    ${VELOX_LIB_DIR}/models/vehiclemodels/src/init_std.cpp
+
+    # simulation
+    ${VELOX_LIB_DIR}/simulation/low_speed_safety.cpp
+    ${VELOX_LIB_DIR}/simulation/vehicle_simulator.cpp
 
     # parameter loader
-    ${COMMONROAD_PARAM_DIR}/vehicle_parameters.cpp
+    ${VELOX_PARAM_DIR}/vehicle_parameters.cpp
 )
 
-target_include_directories(commonroad
+target_include_directories(velox
     PUBLIC
-        $<BUILD_INTERFACE:${COMMONROAD_INCLUDE_DIR}>  # include/utils, include/vehiclemodels, include/vehicle, include/sim
-        $<BUILD_INTERFACE:${COMMONROAD_PARAM_DIR}>    # vehicle_parameters.hpp, vehicle/parameters_vehicle*.hpp
-        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
-        $<INSTALL_INTERFACE:${CMAKE_INSTALL_FULL_DATAROOTDIR}/commonroad/parameters>
+        $<BUILD_INTERFACE:${VELOX_LIB_DIR}>
+        $<BUILD_INTERFACE:${VELOX_PARAM_DIR}>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/velox>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_FULL_DATAROOTDIR}/velox/parameters>
 )
 
-# Define default root for parameter YAMLs as an absolute path
-target_compile_definitions(commonroad
+target_compile_definitions(velox
     PUBLIC
-        COMMONROAD_PARAM_ROOT="$<BUILD_INTERFACE:${COMMONROAD_PARAM_DIR}>$<INSTALL_INTERFACE:${CMAKE_INSTALL_FULL_DATAROOTDIR}/commonroad/parameters>"
+        VELOX_PARAM_ROOT="$<BUILD_INTERFACE:${VELOX_PARAM_DIR}>$<INSTALL_INTERFACE:${CMAKE_INSTALL_FULL_DATAROOTDIR}/velox/parameters>"
 )
 
-# Link yaml-cpp into the core library
-target_link_libraries(commonroad
+target_link_libraries(velox
     PUBLIC
         yaml-cpp::yaml-cpp
 )
 
-install(TARGETS commonroad
-    EXPORT commonroadTargets
+install(TARGETS velox
+    EXPORT veloxTargets
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
-install(DIRECTORY ${COMMONROAD_INCLUDE_DIR}/
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+install(DIRECTORY ${VELOX_LIB_DIR}/
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/velox
+    FILES_MATCHING PATTERN "*.hpp"
 )
 
-install(DIRECTORY ${COMMONROAD_PARAM_DIR}/
-    DESTINATION ${CMAKE_INSTALL_DATADIR}/commonroad/parameters
+install(DIRECTORY ${VELOX_PARAM_DIR}/
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/velox/parameters
 )
 
-install(DIRECTORY ${COMMONROAD_CONFIG_DIR}/
-    DESTINATION ${CMAKE_INSTALL_DATADIR}/commonroad/config
+install(DIRECTORY ${VELOX_CONFIG_DIR}/
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/velox/config
 )
 
-install(EXPORT commonroadTargets
-    NAMESPACE commonroad::
-    DESTINATION ${CMAKE_INSTALL_DATADIR}/cmake/commonroad
+install(EXPORT veloxTargets
+    NAMESPACE velox::
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/cmake/velox
 )
 
 # ------------------------------------------------------------
@@ -167,7 +167,7 @@ if (TARGET imgui)
 
     target_link_libraries(commonroad_app
         PRIVATE
-            commonroad
+            velox
             imgui
             SDL2::SDL2
             SDL2::SDL2main
@@ -185,12 +185,12 @@ endif()
 # Tests
 # ------------------------------------------------------------
 
-# Default OFF; enable with: cmake -DBUILD_COMMONROAD_TESTS=ON ..
-option(BUILD_COMMONROAD_TESTS "Build CommonRoad test executables" OFF)
+# Default OFF; enable with: cmake -DBUILD_VELOX_TESTS=ON ..
+option(BUILD_VELOX_TESTS "Build Velox test executables" OFF)
 
 enable_testing()
 
-if(BUILD_COMMONROAD_TESTS)
+if(BUILD_VELOX_TESTS)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
     add_executable(test_derivatives
@@ -198,7 +198,7 @@ if(BUILD_COMMONROAD_TESTS)
     )
     target_link_libraries(test_derivatives
         PRIVATE
-            commonroad
+            velox
     )
     add_test(NAME test_derivatives COMMAND test_derivatives)
 
@@ -207,7 +207,7 @@ if(BUILD_COMMONROAD_TESTS)
     )
     target_link_libraries(test_zeroInitialVelocity
         PRIVATE
-            commonroad
+            velox
     )
     add_test(NAME test_zeroInitialVelocity COMMAND test_zeroInitialVelocity)
 
@@ -216,7 +216,7 @@ if(BUILD_COMMONROAD_TESTS)
     )
     target_link_libraries(test_vehicle
         PRIVATE
-            commonroad
+            velox
     )
     add_test(NAME test_vehicle COMMAND test_vehicle)
 
@@ -225,7 +225,7 @@ if(BUILD_COMMONROAD_TESTS)
     )
     target_link_libraries(test_steering_controller
         PRIVATE
-            commonroad
+            velox
     )
     add_test(NAME test_steering_controller COMMAND test_steering_controller)
 
@@ -234,7 +234,7 @@ if(BUILD_COMMONROAD_TESTS)
     )
     target_link_libraries(test_longitudinal
         PRIVATE
-            commonroad
+            velox
     )
     add_test(NAME test_longitudinal COMMAND test_longitudinal)
 
@@ -243,7 +243,7 @@ if(BUILD_COMMONROAD_TESTS)
     )
     target_link_libraries(test_low_speed_safety
         PRIVATE
-            commonroad
+            velox
     )
     add_test(NAME test_low_speed_safety COMMAND test_low_speed_safety)
 
@@ -252,7 +252,7 @@ if(BUILD_COMMONROAD_TESTS)
     )
     target_link_libraries(test_timestep_bounds
         PRIVATE
-            commonroad
+            velox
     )
     add_test(NAME test_timestep_bounds COMMAND test_timestep_bounds)
 
@@ -261,7 +261,7 @@ if(BUILD_COMMONROAD_TESTS)
     )
     target_link_libraries(scenario_simulator
         PRIVATE
-            commonroad
+            velox
     )
 
     add_test(NAME scenario_consistency

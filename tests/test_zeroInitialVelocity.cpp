@@ -7,15 +7,15 @@
 
 #include "vehicle/parameters_vehicle2.hpp"
 
-#include "vehiclemodels/vehicle_dynamics_ks.hpp"
-#include "vehiclemodels/vehicle_dynamics_st.hpp"
-#include "vehiclemodels/vehicle_dynamics_mb.hpp"
+#include "models/vehiclemodels/vehicle_dynamics_ks.hpp"
+#include "models/vehiclemodels/vehicle_dynamics_st.hpp"
+#include "models/vehiclemodels/vehicle_dynamics_mb.hpp"
 
-#include "vehiclemodels/init_ks.hpp"
-#include "vehiclemodels/init_st.hpp"
-#include "vehiclemodels/init_mb.hpp"
+#include "models/vehiclemodels/init_ks.hpp"
+#include "models/vehiclemodels/init_st.hpp"
+#include "models/vehiclemodels/init_mb.hpp"
 
-namespace vm = vehiclemodels;
+namespace vm = velox::models;
 
 // -----------------------------------------------------------------------------
 // Helpers

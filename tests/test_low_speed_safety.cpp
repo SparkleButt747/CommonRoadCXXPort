@@ -5,12 +5,12 @@
 #include <optional>
 #include <vector>
 
-#include "sim/low_speed_safety.hpp"
-#include "sim/low_speed_safety_loader.hpp"
-#include "sim/vehicle_simulator.hpp"
+#include "simulation/low_speed_safety.hpp"
+#include "io/low_speed_safety_loader.hpp"
+#include "simulation/vehicle_simulator.hpp"
 #include "vehicle_parameters.hpp"
 
-namespace vsim = vehiclemodels::sim;
+namespace vsim = velox::simulation;
 
 void test_wheel_speed_clamp()
 {
@@ -90,12 +90,12 @@ void test_vehicle_simulator_stop()
 
     vsim::ModelInterface model{};
     model.init_fn = [](const std::vector<double>& state,
-                       const vehiclemodels::VehicleParameters&) {
+                       const velox::models::VehicleParameters&) {
         return state;
     };
     model.dynamics_fn = [](const std::vector<double>& state,
                            const std::vector<double>& control,
-                           const vehiclemodels::VehicleParameters&,
+                           const velox::models::VehicleParameters&,
                            double) {
         std::vector<double> rhs(state.size(), 0.0);
         if (state.size() > 0) {
@@ -110,11 +110,11 @@ void test_vehicle_simulator_stop()
         return rhs;
     };
     model.speed_fn = [](const std::vector<double>& state,
-                        const vehiclemodels::VehicleParameters&) {
+                        const velox::models::VehicleParameters&) {
         return (state.size() > 3) ? std::abs(state[3]) : 0.0;
     };
 
-    vehiclemodels::VehicleParameters params{};
+    velox::models::VehicleParameters params{};
     params.a  = 1.4;
     params.b  = 1.3;
     params.R_w = 0.3;
@@ -180,12 +180,12 @@ void test_rk4_predictor_does_not_latch_above_engage()
 
     vsim::ModelInterface model{};
     model.init_fn = [](const std::vector<double>& state,
-                       const vehiclemodels::VehicleParameters&) {
+                       const velox::models::VehicleParameters&) {
         return state;
     };
     model.dynamics_fn = [target_speed, rate](const std::vector<double>& state,
                                             const std::vector<double>&,
-                                            const vehiclemodels::VehicleParameters&,
+                                            const velox::models::VehicleParameters&,
                                             double) {
         std::vector<double> rhs(state.size(), 0.0);
         if (!state.empty()) {
@@ -195,11 +195,11 @@ void test_rk4_predictor_does_not_latch_above_engage()
         return rhs;
     };
     model.speed_fn = [](const std::vector<double>& state,
-                        const vehiclemodels::VehicleParameters&) {
+                        const velox::models::VehicleParameters&) {
         return state.empty() ? 0.0 : state[0];
     };
 
-    vehiclemodels::VehicleParameters params{};
+    velox::models::VehicleParameters params{};
 
     vsim::VehicleSimulator simulator(std::move(model), params, 0.2, std::move(safety));
     const std::vector<double> initial_state{target_speed + 0.002, 0.2, 0.1};
@@ -225,7 +225,7 @@ void test_std_predictor_wheel_speeds_zeroed_when_engaged()
     cfg.slip_angle_limit    = 0.35;
     cfg.stop_speed_epsilon  = 0.05;
 
-    vehiclemodels::VehicleParameters params{};
+    velox::models::VehicleParameters params{};
     params.a = 1.4;
     params.b = 1.3;
 
@@ -278,7 +278,7 @@ void test_mb_predictor_wheel_speeds_zeroed_when_engaged()
     cfg.slip_angle_limit    = 0.35;
     cfg.stop_speed_epsilon  = 0.05;
 
-    vehiclemodels::VehicleParameters params{};
+    velox::models::VehicleParameters params{};
     params.a = 1.4;
     params.b = 1.3;
 
@@ -362,12 +362,12 @@ void test_mb_latch_releases_after_acceleration()
 
     vsim::ModelInterface model{};
     model.init_fn = [](const std::vector<double>& state,
-                       const vehiclemodels::VehicleParameters&) {
+                       const velox::models::VehicleParameters&) {
         return state;
     };
     model.dynamics_fn = [](const std::vector<double>& state,
                            const std::vector<double>& control,
-                           const vehiclemodels::VehicleParameters&,
+                           const velox::models::VehicleParameters&,
                            double) {
         std::vector<double> rhs(state.size(), 0.0);
         if (!state.empty()) {
@@ -376,14 +376,14 @@ void test_mb_latch_releases_after_acceleration()
         return rhs;
     };
     model.speed_fn = [](const std::vector<double>& state,
-                        const vehiclemodels::VehicleParameters&) {
+                        const velox::models::VehicleParameters&) {
         if (state.empty()) {
             return 0.0;
         }
         return std::fabs(state[0]);
     };
 
-    vehiclemodels::VehicleParameters params{};
+    velox::models::VehicleParameters params{};
     vsim::VehicleSimulator simulator(std::move(model), params, 0.005, std::move(safety));
     simulator.reset(std::vector<double>{0.0});
 

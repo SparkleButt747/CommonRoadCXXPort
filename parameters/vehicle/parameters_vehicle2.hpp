@@ -3,7 +3,7 @@
 #include <string>
 #include "vehicle_parameters.hpp"
 
-namespace vehiclemodels {
+namespace velox::models {
 
 /**
  * Creates a VehicleParameters object holding all vehicle parameters for
@@ -14,4 +14,4 @@ inline VehicleParameters parameters_vehicle2(const std::string& dir_params = {})
     return setup_vehicle_parameters(2, dir_params);
 }
 
-} // namespace vehiclemodels
+} // namespace velox::models
