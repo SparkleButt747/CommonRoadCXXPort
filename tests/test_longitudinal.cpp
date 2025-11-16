@@ -5,12 +5,12 @@
 #include <limits>
 #include <stdexcept>
 
-#include "sim/longitudinal/config_loader.hpp"
-#include "sim/longitudinal/final_accel_controller.hpp"
+#include "controllers/longitudinal/config_loader.hpp"
+#include "controllers/longitudinal/final_accel_controller.hpp"
 #include "vehicle/parameters_vehicle2.hpp"
 
-namespace vm = vehiclemodels;
-namespace vml = vehiclemodels::sim::longitudinal;
+namespace vm  = velox::models;
+namespace vml = velox::controllers::longitudinal;
 
 void test_soc_bounds_validation()
 {

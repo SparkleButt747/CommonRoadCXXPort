@@ -17,10 +17,10 @@
 #include <vector>
 
 #include "vehicle/parameters_vehicle2.hpp"
-#include "vehiclemodels/init_st.hpp"
-#include "vehiclemodels/vehicle_dynamics_st.hpp"
+#include "models/vehiclemodels/init_st.hpp"
+#include "models/vehiclemodels/vehicle_dynamics_st.hpp"
 
-namespace vm = vehiclemodels;
+namespace vm = velox::models;
 
 using State = std::vector<double>;
 using Input = std::vector<double>;

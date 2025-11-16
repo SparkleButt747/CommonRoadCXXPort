@@ -2,12 +2,12 @@
 
 #include <string>
 
-#include "utils/longitudinal_parameters.hpp"
-#include "utils/steering_parameters.hpp"
-#include "utils/tireParameters.hpp"
-#include "utils/trailer_parameters.hpp"
+#include "models/longitudinal_parameters.hpp"
+#include "models/steering_parameters.hpp"
+#include "models/tireParameters.hpp"
+#include "models/trailer_parameters.hpp"
 
-namespace vehiclemodels {
+namespace velox::models {
 
 /**
  * VehicleParameters base class: defines all parameters used by the vehicle models
@@ -108,4 +108,4 @@ struct VehicleParameters {
 VehicleParameters setup_vehicle_parameters(int vehicle_id,
                                            const std::string& dir_params = {});
 
-} // namespace vehiclemodels
+} // namespace velox::models

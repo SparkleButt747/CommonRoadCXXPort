@@ -8,7 +8,7 @@
 
 namespace fs = std::filesystem;
 
-namespace vehiclemodels {
+namespace velox::models {
 
 namespace {
 
@@ -178,12 +178,12 @@ VehicleParameters setup_vehicle_parameters(int vehicle_id,
                                            const std::string& dir_params)
 {
     // Default param root if none given
-#ifndef COMMONROAD_PARAM_ROOT
-#define COMMONROAD_PARAM_ROOT "parameters"
+#ifndef VELOX_PARAM_ROOT
+#define VELOX_PARAM_ROOT "parameters"
 #endif
 
     fs::path root = dir_params.empty()
-        ? fs::path(COMMONROAD_PARAM_ROOT)
+        ? fs::path(VELOX_PARAM_ROOT)
         : fs::path(dir_params);
 
     // Vehicle and tire YAML paths
@@ -217,4 +217,4 @@ VehicleParameters setup_vehicle_parameters(int vehicle_id,
     return p;
 }
 
-} // namespace vehiclemodels
+} // namespace velox::models

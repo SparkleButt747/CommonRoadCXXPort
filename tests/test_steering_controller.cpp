@@ -1,12 +1,12 @@
 #include <cmath>
 #include <iostream>
 
-#include "utils/steering_controller.hpp"
+#include "controllers/steering_controller.hpp"
 
-using vehiclemodels::utils::FinalSteerController;
-using vehiclemodels::utils::SteeringConfig;
-using vehiclemodels::utils::SteeringParameters;
-using vehiclemodels::utils::SteeringWheel;
+using velox::controllers::FinalSteerController;
+using velox::controllers::SteeringConfig;
+using velox::controllers::SteeringParameters;
+using velox::controllers::SteeringWheel;
 
 namespace {
 SteeringConfig::Wheel make_wheel_config()

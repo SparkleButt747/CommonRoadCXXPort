@@ -5,17 +5,17 @@
 #include <string>
 #include <vector>
 
-#include "sim/low_speed_safety_loader.hpp"
-#include "sim/model_timing.hpp"
-#include "sim/vehicle_simulator.hpp"
+#include "io/low_speed_safety_loader.hpp"
+#include "simulation/model_timing.hpp"
+#include "simulation/vehicle_simulator.hpp"
 #include "vehicle/parameters_vehicle1.hpp"
-#include "vehiclemodels/init_mb.hpp"
-#include "vehiclemodels/init_std.hpp"
-#include "vehiclemodels/vehicle_dynamics_mb.hpp"
-#include "vehiclemodels/vehicle_dynamics_std.hpp"
+#include "models/vehiclemodels/init_mb.hpp"
+#include "models/vehiclemodels/init_std.hpp"
+#include "models/vehiclemodels/vehicle_dynamics_mb.hpp"
+#include "models/vehiclemodels/vehicle_dynamics_std.hpp"
 
-namespace vm   = vehiclemodels;
-namespace vsim = vehiclemodels::sim;
+namespace vm   = velox::models;
+namespace vsim = velox::simulation;
 
 static vsim::ModelInterface build_std_interface()
 {
@@ -104,7 +104,7 @@ static void expect_finite_state(const std::vector<double>& state, const std::str
 static void test_std_dt_bound()
 {
     const auto cfg    = vsim::load_default_low_speed_safety_config();
-    auto params       = vm::parameters_vehicle1(COMMONROAD_PARAM_ROOT);
+    auto params       = vm::parameters_vehicle1(VELOX_PARAM_ROOT);
     auto iface        = build_std_interface();
     auto safety       = make_std_safety(params, cfg);
     const float dt    = vsim::model_timing(vsim::ModelType::STD).max_dt;
@@ -127,7 +127,7 @@ static void test_std_dt_bound()
 static void test_mb_dt_bound()
 {
     const auto cfg    = vsim::load_default_low_speed_safety_config();
-    auto params       = vm::parameters_vehicle1(COMMONROAD_PARAM_ROOT);
+    auto params       = vm::parameters_vehicle1(VELOX_PARAM_ROOT);
     auto iface        = build_mb_interface();
     auto safety       = make_mb_safety(params, cfg);
     const float dt    = vsim::model_timing(vsim::ModelType::MB).max_dt;

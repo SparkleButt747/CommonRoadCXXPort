@@ -5,16 +5,16 @@
 #include <iomanip>
 #include <vector>
 
-#include "vehiclemodels/vehicle_dynamics_ks.hpp"
-#include "vehiclemodels/vehicle_dynamics_kst.hpp"
-#include "vehiclemodels/vehicle_dynamics_st.hpp"
-#include "vehiclemodels/vehicle_dynamics_std.hpp"
-#include "vehiclemodels/vehicle_dynamics_mb.hpp"
+#include "models/vehiclemodels/vehicle_dynamics_ks.hpp"
+#include "models/vehiclemodels/vehicle_dynamics_kst.hpp"
+#include "models/vehiclemodels/vehicle_dynamics_st.hpp"
+#include "models/vehiclemodels/vehicle_dynamics_std.hpp"
+#include "models/vehiclemodels/vehicle_dynamics_mb.hpp"
 
 #include "vehicle/parameters_vehicle2.hpp"
 #include "vehicle/parameters_vehicle4.hpp"
 
-namespace vm = vehiclemodels;
+namespace vm = velox::models;
 
 // -----------------------------------------------------------------------------
 // Helpers
