@@ -7,6 +7,8 @@
 
 namespace velox::controllers {
 
+using velox::models::utils::SteeringParameters;
+
 struct SteeringConfig {
     struct Wheel {
         double max_angle{0.0};

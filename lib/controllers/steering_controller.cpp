@@ -13,6 +13,8 @@
 
 namespace velox::controllers {
 
+using velox::models::utils::SteeringParameters;
+
 namespace {
 constexpr double EPS = 1e-9;
 
