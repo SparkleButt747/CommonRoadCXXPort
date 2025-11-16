@@ -1,0 +1,6 @@
+# Tuned thresholds for the multi-body model; looser limits release the latch sooner.
+engage_speed: 0.35
+release_speed: 0.6
+yaw_rate_limit: 0.7
+slip_angle_limit: 0.5
+stop_speed_epsilon: 0.05

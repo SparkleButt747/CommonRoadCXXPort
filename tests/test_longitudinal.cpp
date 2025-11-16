@@ -2,6 +2,7 @@
 #include <cassert>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 
 #include "sim/longitudinal/config_loader.hpp"
@@ -75,15 +76,21 @@ void test_stop_and_go_continuity()
     double speed    = 5.0;
 
     double accel_at_stop = 0.0;
+    double stop_speed     = std::numeric_limits<double>::infinity();
+    bool   reached_stop   = false;
     for (int i = 0; i < 400; ++i) {
         const auto output = controller.step(vml::DriverIntent{0.0, 1.0}, speed, dt);
         speed              = std::max(0.0, speed + output.acceleration * dt);
         if (speed <= ctrl_cfg.stop_speed_epsilon + 1e-6) {
-            accel_at_stop = output.acceleration;
+            stop_speed   = speed;
+            reached_stop = true;
+            const auto settle = controller.step(vml::DriverIntent{0.0, 1.0}, speed, dt);
+            accel_at_stop = settle.acceleration;
             break;
         }
     }
-    assert(speed <= ctrl_cfg.stop_speed_epsilon + 1e-6);
+    assert(reached_stop);
+    assert(stop_speed <= ctrl_cfg.stop_speed_epsilon + 1e-6);
     assert(accel_at_stop >= -1e-6);
 
     bool resumed_motion = false;
