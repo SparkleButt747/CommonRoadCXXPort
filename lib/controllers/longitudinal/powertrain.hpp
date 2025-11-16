@@ -1,10 +1,5 @@
 #pragma once
 
-#include <algorithm>
-#include <cmath>
-#include <stdexcept>
-#include <string>
-
 namespace velox::controllers::longitudinal {
 
 struct PowertrainConfig {
@@ -18,40 +13,7 @@ struct PowertrainConfig {
     double initial_soc           = 0.0;
     double battery_capacity_kwh  = 0.0;
 
-    void validate() const
-    {
-        auto finite_and_non_negative = [](double value, const char* name) {
-            if (!std::isfinite(value) || value < 0.0) {
-                throw std::invalid_argument(std::string{name} + " must be non-negative and finite");
-            }
-        };
-
-        finite_and_non_negative(max_drive_torque, "powertrain.max_drive_torque");
-        finite_and_non_negative(max_regen_torque, "powertrain.max_regen_torque");
-        if (!std::isfinite(max_power) || max_power < 0.0) {
-            throw std::invalid_argument("powertrain.max_power must be non-negative and finite");
-        }
-        finite_and_non_negative(drive_efficiency, "powertrain.drive_efficiency");
-        finite_and_non_negative(regen_efficiency, "powertrain.regen_efficiency");
-        if (drive_efficiency <= 0.0 || drive_efficiency > 1.0) {
-            throw std::invalid_argument("powertrain.drive_efficiency must be in (0, 1]");
-        }
-        if (regen_efficiency < 0.0 || regen_efficiency > 1.0) {
-            throw std::invalid_argument("powertrain.regen_efficiency must be in [0, 1]");
-        }
-        if (!std::isfinite(min_soc) || !std::isfinite(max_soc) || !std::isfinite(initial_soc)) {
-            throw std::invalid_argument("powertrain SOC bounds must be finite");
-        }
-        if (min_soc < 0.0 || max_soc > 1.0) {
-            throw std::invalid_argument("powertrain SOC bounds must lie within [0, 1]");
-        }
-        if (!(min_soc <= initial_soc && initial_soc <= max_soc)) {
-            throw std::invalid_argument("0 <= min_soc <= initial_soc <= max_soc <= 1 must hold");
-        }
-        if (!std::isfinite(battery_capacity_kwh) || battery_capacity_kwh <= 0.0) {
-            throw std::invalid_argument("powertrain.battery_capacity_kwh must be positive and finite");
-        }
-    }
+    void validate() const;
 };
 
 struct PowertrainOutput {

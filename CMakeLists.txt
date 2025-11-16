@@ -82,14 +82,7 @@ add_library(velox STATIC
     ${VELOX_LIB_DIR}/io/low_speed_safety_loader.cpp
 
     # models and utilities
-    ${VELOX_LIB_DIR}/models/acceleration_constraints.cpp
-    ${VELOX_LIB_DIR}/models/longitudinal_parameters.cpp
-    ${VELOX_LIB_DIR}/models/steering_constraints.cpp
-    ${VELOX_LIB_DIR}/models/steering_parameters.cpp
     ${VELOX_LIB_DIR}/models/tire_model.cpp
-    ${VELOX_LIB_DIR}/models/tireParameters.cpp
-    ${VELOX_LIB_DIR}/models/trailer_parameters.cpp
-    ${VELOX_LIB_DIR}/models/unitConversion.cpp
     ${VELOX_LIB_DIR}/models/vehicle_dynamics_ks_cog.cpp
 
     ${VELOX_LIB_DIR}/models/vehiclemodels/src/vehicle_dynamics_ks.cpp
@@ -192,6 +185,15 @@ enable_testing()
 
 if(BUILD_VELOX_TESTS)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
+
+    add_executable(test_header_modules
+        tests/test_header_modules.cpp
+    )
+    target_include_directories(test_header_modules
+        PRIVATE
+            ${VELOX_LIB_DIR}
+    )
+    add_test(NAME test_header_modules COMMAND test_header_modules)
 
     add_executable(test_derivatives
         tests/test_derivatives.cpp

@@ -1,9 +1,5 @@
 #pragma once
 
-#include <algorithm>
-#include <cmath>
-#include <stdexcept>
-
 namespace velox::controllers::longitudinal {
 
 struct BrakeConfig {
@@ -11,18 +7,7 @@ struct BrakeConfig {
     double max_regen_force  = 0.0;
     double min_regen_speed  = 0.0;
 
-    void validate() const
-    {
-        if (!std::isfinite(max_force) || max_force < 0.0) {
-            throw std::invalid_argument("brake.max_force must be non-negative and finite");
-        }
-        if (!std::isfinite(max_regen_force) || max_regen_force < 0.0) {
-            throw std::invalid_argument("brake.max_regen_force must be non-negative and finite");
-        }
-        if (!std::isfinite(min_regen_speed) || min_regen_speed < 0.0) {
-            throw std::invalid_argument("brake.min_regen_speed must be non-negative and finite");
-        }
-    }
+    void validate() const;
 };
 
 struct BrakeBlendOutput {
