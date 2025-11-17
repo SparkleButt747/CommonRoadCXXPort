@@ -77,6 +77,7 @@ struct ControllerTelemetry {
 struct DerivedTelemetry {
     double distance_traveled_m   = 0.0;
     double energy_consumed_joules = 0.0;
+    double simulation_time_s     = 0.0;
 };
 
 struct SimulationTelemetry {
@@ -102,7 +103,8 @@ SimulationTelemetry compute_simulation_telemetry(
     const simulation::LowSpeedSafety* safety,
     double measured_speed,
     double cumulative_distance_m,
-    double cumulative_energy_j);
+    double cumulative_energy_j,
+    double cumulative_sim_time_s);
 
 std::string to_json(const SimulationTelemetry& telemetry);
 
