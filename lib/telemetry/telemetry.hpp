@@ -93,7 +93,7 @@ struct SimulationTelemetry {
 };
 
 SimulationTelemetry compute_simulation_telemetry(
-    ModelType model,
+    simulation::ModelType model,
     const models::VehicleParameters& params,
     const std::vector<double>& state,
     const controllers::longitudinal::ControllerOutput& accel_output,

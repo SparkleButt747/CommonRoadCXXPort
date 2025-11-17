@@ -12,10 +12,10 @@ namespace {
 constexpr double kGravity = 9.81;
 constexpr double kEpsilon = 1e-6;
 
-double yaw_rate_from_state(ModelType model, const std::vector<double>& state, double v_long, double steer_angle, double wheelbase)
+double yaw_rate_from_state(simulation::ModelType model, const std::vector<double>& state, double v_long, double steer_angle, double wheelbase)
 {
     switch (model) {
-        case ModelType::MB:
+        case simulation::ModelType::MB:
             if (state.size() > 5) {
                 return state[5];
             }
@@ -87,7 +87,7 @@ void populate_axle(AxleTelemetry& axle,
 } // namespace
 
 SimulationTelemetry compute_simulation_telemetry(
-    ModelType model,
+    simulation::ModelType model,
     const models::VehicleParameters& params,
     const std::vector<double>& state,
     const controllers::longitudinal::ControllerOutput& accel_output,
@@ -109,9 +109,9 @@ SimulationTelemetry compute_simulation_telemetry(
     double beta   = 0.0;
 
     switch (model) {
-        case ModelType::KS_REAR:
-        case ModelType::KS_COG:
-        case ModelType::KST:
+        case simulation::ModelType::KS_REAR:
+        case simulation::ModelType::KS_COG:
+        case simulation::ModelType::KST:
             if (state.size() >= 5) {
                 v_long = state[3];
                 yaw    = state[4];
@@ -119,7 +119,7 @@ SimulationTelemetry compute_simulation_telemetry(
             beta = 0.0;
             break;
 
-        case ModelType::ST:
+        case simulation::ModelType::ST:
             if (state.size() >= 7) {
                 v_long = state[3];
                 yaw    = state[4];
@@ -127,7 +127,7 @@ SimulationTelemetry compute_simulation_telemetry(
             }
             break;
 
-        case ModelType::STD:
+        case simulation::ModelType::STD:
             if (state.size() >= 9) {
                 v_long = state[3];
                 yaw    = state[4];
@@ -135,7 +135,7 @@ SimulationTelemetry compute_simulation_telemetry(
             }
             break;
 
-        case ModelType::MB:
+        case simulation::ModelType::MB:
             if (state.size() >= 11) {
                 v_long = state[3];
                 v_lat  = state[10];
@@ -164,7 +164,7 @@ SimulationTelemetry compute_simulation_telemetry(
 
     telemetry.acceleration.longitudinal = accel_output.acceleration;
     switch (model) {
-        case ModelType::MB:
+        case simulation::ModelType::MB:
             if (state.size() > 5) {
                 telemetry.acceleration.lateral = v_long * state[5];
             }
