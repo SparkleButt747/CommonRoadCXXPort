@@ -51,9 +51,8 @@
 #include "models/vehiclemodels/init_st.hpp"
 #include "models/vehiclemodels/init_std.hpp"
 
-#include "controllers/longitudinal/config_loader.hpp"
 #include "controllers/longitudinal/final_accel_controller.hpp"
-#include "io/low_speed_safety_loader.hpp"
+#include "io/config_manager.hpp"
 #include "simulation/model_timing.hpp"
 #include "simulation/vehicle_simulator.hpp"
 
@@ -61,6 +60,7 @@ namespace vm     = velox::models;
 namespace vutils = velox::controllers;
 namespace longi  = velox::controllers::longitudinal;
 namespace vsim   = velox::simulation;
+namespace vio    = velox::io;
 
 using ModelType = vsim::ModelType;
 
@@ -84,9 +84,11 @@ static constexpr float kSliderMinDt = vsim::kMinStableDt;
 static constexpr float kSliderMaxDt = 0.05f;
 static constexpr double kDtRebuildRatio = 2.0;
 
-static bool enforce_model_dt_limits(Simulation& sim, ModelType model)
+static bool enforce_model_dt_limits(Simulation& sim,
+                                    ModelType model,
+                                    const vio::ConfigManager& configs)
 {
-    const auto timing = vsim::model_timing(model);
+    const auto timing = configs.load_model_timing(model);
     const float clamped = std::clamp(sim.dt, kSliderMinDt, timing.max_dt);
     const bool changed  = std::abs(clamped - sim.dt) > 1e-9f;
     if (changed) {
@@ -580,11 +582,18 @@ static void draw_car(SDL_Renderer* renderer,
 static vsim::LowSpeedSafetyConfig reset_simulation(Simulation& sim,
                                                    ModelType model,
                                                    int vehicle_id,
+                                                   const vio::ConfigManager& configs,
                                                    const std::string& param_root = {})
 {
+    std::optional<vio::ConfigManager> override_configs{};
+    if (!param_root.empty()) {
+        override_configs.emplace(std::filesystem::path{}, std::filesystem::path(param_root));
+    }
+    const auto& active_configs = override_configs ? *override_configs : configs;
+
     sim.model      = model;
     sim.vehicle_id = vehicle_id;
-    sim.params     = load_vehicle_params(vehicle_id, param_root);
+    sim.params     = active_configs.load_vehicle_parameters(vehicle_id);
     sim.u.assign(2, 0.0);
     sim.integrator.reset();
 
@@ -604,7 +613,7 @@ static vsim::LowSpeedSafetyConfig reset_simulation(Simulation& sim,
     sim.x0 = core;
     sim.x  = core;
 
-    auto safety_cfg = vsim::load_low_speed_safety_config_for_model(model);
+    auto safety_cfg = active_configs.load_low_speed_safety_config(model);
     auto iface      = build_model_interface(model);
     auto safety     = build_low_speed_safety(model, sim.params, safety_cfg);
     sim.integrator = std::make_unique<vsim::VehicleSimulator>(
@@ -677,6 +686,15 @@ int main(int, char**)
     };
 
     // Simulation setup
+    vio::ConfigManager config_manager{};
+    std::optional<vio::ConfigManager> override_configs{};
+    auto active_configs = [&]() -> const vio::ConfigManager& {
+        if (override_configs) {
+            return *override_configs;
+        }
+        return config_manager;
+    };
+
     Simulation sim{};
     sim.dt = 0.01f;
 
@@ -684,7 +702,7 @@ int main(int, char**)
     int currentVehicleIdx  = 0; // 0..3 -> IDs 1..4
     const int vehicle_ids[4] = {1, 2, 3, 4};
     std::string param_root;
-    enforce_model_dt_limits(sim, currentModel);
+    enforce_model_dt_limits(sim, currentModel, active_configs());
     std::string dt_warning_message;
     double dt_warning_expires = 0.0;
 
@@ -694,6 +712,7 @@ int main(int, char**)
             sim,
             currentModel,
             vehicle_ids[currentVehicleIdx],
+            active_configs(),
             param_root);
     } catch (const std::exception& e) {
         return shutdown_with_message(e.what());
@@ -701,7 +720,7 @@ int main(int, char**)
 
     vutils::SteeringConfig steering_config;
     try {
-        steering_config = vutils::SteeringConfig::load_default();
+        steering_config = active_configs().load_steering_config();
     } catch (const std::exception& e) {
         return shutdown_with_message(e.what());
     }
@@ -718,11 +737,11 @@ int main(int, char**)
     longi::FinalAccelControllerConfig accel_cfg;
 
     try {
-        powertrain_cfg = longi::load_default_powertrain_config();
-        aero_cfg       = longi::load_default_aero_config();
-        rolling_cfg    = longi::load_default_rolling_resistance_config();
-        brake_cfg      = longi::load_default_brake_config();
-        accel_cfg      = longi::load_default_final_accel_controller_config();
+        powertrain_cfg = active_configs().load_powertrain_config();
+        aero_cfg       = active_configs().load_aero_config();
+        rolling_cfg    = active_configs().load_rolling_resistance_config();
+        brake_cfg      = active_configs().load_brake_config();
+        accel_cfg      = active_configs().load_final_accel_controller_config();
     } catch (const std::exception& e) {
         return shutdown_with_message(e.what());
     }
@@ -906,10 +925,10 @@ int main(int, char**)
             };
             if (ImGui::Combo("Model", &model_idx, model_items, IM_ARRAYSIZE(model_items))) {
                 currentModel = static_cast<ModelType>(model_idx);
-                const auto timing = vsim::model_timing(currentModel);
+                const auto timing = active_configs().load_model_timing(currentModel);
                 const float requested_dt = sim.dt;
                 const bool dt_was_above_max = requested_dt > timing.max_dt + 1e-6f;
-                const bool dt_adjusted = enforce_model_dt_limits(sim, currentModel);
+                const bool dt_adjusted = enforce_model_dt_limits(sim, currentModel, active_configs());
                 if (dt_adjusted && dt_was_above_max) {
                     set_dt_warning(dt_warning_message,
                                    dt_warning_expires,
@@ -923,6 +942,7 @@ int main(int, char**)
                         sim,
                         currentModel,
                         vehicle_ids[currentVehicleIdx],
+                        active_configs(),
                         param_root);
                 } catch (const std::exception& e) {
                     return shutdown_with_message(e.what());
@@ -950,6 +970,7 @@ int main(int, char**)
                         sim,
                         currentModel,
                         vehicle_ids[currentVehicleIdx],
+                        active_configs(),
                         param_root);
                 } catch (const std::exception& e) {
                     return shutdown_with_message(e.what());
@@ -964,7 +985,7 @@ int main(int, char**)
                 prev_counter = SDL_GetPerformanceCounter();
             }
 
-            const auto timing = vsim::model_timing(currentModel);
+            const auto timing = active_configs().load_model_timing(currentModel);
             ImGui::Text("Nominal dt: %.3f s (max %.3f s)", timing.nominal_dt, timing.max_dt);
             float slider_dt = sim.dt;
             if (ImGui::SliderFloat("dt [s]", &slider_dt, kSliderMinDt, kSliderMaxDt, "%.3f")) {

@@ -6,11 +6,12 @@
 #include <vector>
 
 #include "simulation/low_speed_safety.hpp"
-#include "io/low_speed_safety_loader.hpp"
+#include "io/config_manager.hpp"
 #include "simulation/vehicle_simulator.hpp"
 #include "vehicle_parameters.hpp"
 
 namespace vsim = velox::simulation;
+namespace vio  = velox::io;
 
 void test_wheel_speed_clamp()
 {
@@ -332,10 +333,11 @@ void test_mb_predictor_wheel_speeds_zeroed_when_engaged()
 
 void test_model_specific_config_loading()
 {
-    const auto default_cfg = vsim::load_default_low_speed_safety_config();
-    const auto std_cfg = vsim::load_low_speed_safety_config_for_model(vsim::ModelType::STD);
-    const auto mb_cfg  = vsim::load_low_speed_safety_config_for_model(vsim::ModelType::MB);
-    const auto st_cfg  = vsim::load_low_speed_safety_config_for_model(vsim::ModelType::ST);
+    vio::ConfigManager configs{};
+    const auto default_cfg = configs.load_low_speed_safety_config(vsim::ModelType::ST);
+    const auto std_cfg = configs.load_low_speed_safety_config(vsim::ModelType::STD);
+    const auto mb_cfg  = configs.load_low_speed_safety_config(vsim::ModelType::MB);
+    const auto st_cfg  = configs.load_low_speed_safety_config(vsim::ModelType::ST);
 
     assert(std::abs(std_cfg.release_speed - 0.8) < 1e-9);
     assert(std::abs(std_cfg.engage_speed - 0.4) < 1e-9);
@@ -348,7 +350,8 @@ void test_model_specific_config_loading()
 
 void test_mb_latch_releases_after_acceleration()
 {
-    const auto cfg = vsim::load_low_speed_safety_config_for_model(vsim::ModelType::MB);
+    vio::ConfigManager configs{};
+    const auto cfg = configs.load_low_speed_safety_config(vsim::ModelType::MB);
     vsim::LowSpeedSafety safety(
         cfg,
         /*longitudinal_index=*/0,
