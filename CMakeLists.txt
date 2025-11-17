@@ -102,6 +102,9 @@ add_library(velox STATIC
     ${VELOX_LIB_DIR}/simulation/simulation_daemon.cpp
     ${VELOX_LIB_DIR}/simulation/vehicle_simulator.cpp
 
+    # telemetry
+    ${VELOX_LIB_DIR}/telemetry/telemetry.cpp
+
     # parameter loader
     ${VELOX_PARAM_DIR}/vehicle_parameters.cpp
 )

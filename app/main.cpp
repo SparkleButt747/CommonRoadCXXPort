@@ -55,12 +55,15 @@
 #include "io/config_manager.hpp"
 #include "simulation/model_timing.hpp"
 #include "simulation/vehicle_simulator.hpp"
+#include "telemetry/telemetry.hpp"
+#include "telemetry/telemetry_imgui.hpp"
 
 namespace vm     = velox::models;
 namespace vutils = velox::controllers;
 namespace longi  = velox::controllers::longitudinal;
 namespace vsim   = velox::simulation;
 namespace vio    = velox::io;
+namespace vtel   = velox::telemetry;
 
 using ModelType = vsim::ModelType;
 
@@ -364,115 +367,6 @@ static vsim::LowSpeedSafety build_low_speed_safety(ModelType model,
 
 // compute RHS for current model
 // --------------------------------------------------------------
-// Telemetry
-// --------------------------------------------------------------
-
-struct Telemetry {
-    double speed          = 0.0;
-    double v_long         = 0.0;
-    double v_lat          = 0.0;
-    double v_global_x     = 0.0;
-    double v_global_y     = 0.0;
-    double a_long         = 0.0;
-    double a_lat          = 0.0;
-    bool   low_speed_engaged = false;
-    double soc            = 0.0;
-};
-
-static Telemetry compute_telemetry(const Simulation& sim,
-                                   const longi::ControllerOutput& accel_output,
-                                   const longi::FinalAccelController* accel_controller)
-{
-    Telemetry t{};
-
-    const auto* simulator = sim.integrator.get();
-    const auto& state     = simulator ? simulator->state() : sim.x;
-
-    const double wheelbase = sim.params.a + sim.params.b;
-    const double delta     = (state.size() > 2) ? state[2] : 0.0;
-
-    double v_long = 0.0;
-    double v_lat  = 0.0;
-    double yaw    = 0.0;
-    double beta   = 0.0;
-
-    switch (sim.model) {
-        case ModelType::KS_REAR:
-        case ModelType::KS_COG:
-        case ModelType::KST:
-            if (state.size() >= 5) {
-                v_long = state[3];
-                yaw    = state[4];
-            }
-            beta = 0.0;
-            break;
-
-        case ModelType::ST:
-            if (state.size() >= 7) {
-                v_long = state[3];
-                yaw    = state[4];
-                beta   = state[6];
-            }
-            break;
-
-        case ModelType::STD:
-            if (state.size() >= 9) {
-                v_long = state[3];
-                yaw    = state[4];
-                beta   = state[6];
-            }
-            break;
-
-        case ModelType::MB:
-            if (state.size() >= 11) {
-                v_long = state[3];
-                v_lat  = state[10];
-                yaw    = state[4];
-            }
-            if (std::abs(v_long) > 1e-6 || std::abs(v_lat) > 1e-6) {
-                beta = std::atan2(v_lat, v_long);
-            }
-            break;
-    }
-
-    const double speed = std::hypot(v_long, v_lat);
-    t.speed            = speed;
-    t.v_long           = v_long;
-    t.v_lat            = v_lat;
-
-    const double heading = yaw + beta;
-    t.v_global_x        = speed * std::cos(heading);
-    t.v_global_y        = speed * std::sin(heading);
-
-    t.a_long = accel_output.acceleration;
-
-    switch (sim.model) {
-        case ModelType::MB:
-            if (state.size() > 5) {
-                t.a_lat = v_long * state[5];
-            }
-            break;
-        default:
-            if (wheelbase > 0.0) {
-                t.a_lat = v_long * v_long * std::tan(delta) / wheelbase;
-            } else {
-                t.a_lat = 0.0;
-            }
-            break;
-    }
-
-    if (simulator) {
-        t.speed             = std::max(0.0, simulator->speed());
-        t.low_speed_engaged = simulator->safety().engaged();
-    }
-
-    if (accel_controller) {
-        t.soc = accel_controller->powertrain().soc();
-    }
-
-    return t;
-}
-
 static double simulation_speed(const Simulation& sim)
 {
     if (sim.integrator) {
@@ -801,7 +695,9 @@ int main(int, char**)
 
     bool running = true;
     Uint64 prev_counter = SDL_GetPerformanceCounter();
-    double sim_time = 0.0;
+    double sim_time     = 0.0;
+    double distance_m   = 0.0;
+    double energy_j     = 0.0;
     float keyboard_brake_bias = 1.0f;
 
     while (running) {
@@ -836,6 +732,8 @@ int main(int, char**)
                 return shutdown_with_message(e.what());
             }
             sim_time     = 0.0;
+            distance_m   = 0.0;
+            energy_j     = 0.0;
             prev_counter = SDL_GetPerformanceCounter();
             continue;
         }
@@ -887,9 +785,25 @@ int main(int, char**)
         if (sim.integrator) {
             sim.integrator->set_dt(static_cast<double>(sim.dt));
             const auto& updated_state = sim.integrator->step(sim.u);
-            sim.x = updated_state;
-            sim_time += sim.dt;
+            sim.x                     = updated_state;
+            const double speed_after  = simulation_speed(sim);
+            distance_m += 0.5 * (std::abs(speed) + std::abs(speed_after)) * sim.dt;
+            energy_j   += accel_output.battery_power * sim.dt;
+            sim_time   += sim.dt;
         }
+
+        const auto& state_for_telemetry = sim.integrator ? sim.integrator->state() : sim.x;
+        vtel::SimulationTelemetry telemetry = vtel::compute_simulation_telemetry(
+            currentModel,
+            sim.params,
+            state_for_telemetry,
+            accel_output,
+            wheel_state,
+            steer_state,
+            sim.integrator ? &sim.integrator->safety() : nullptr,
+            sim.integrator ? sim.integrator->speed() : simulation_speed(sim),
+            distance_m,
+            energy_j);
 
         // ImGui frame
         ImGui_ImplSDLRenderer2_NewFrame();
@@ -954,6 +868,8 @@ int main(int, char**)
                     return shutdown_with_message(e.what());
                 }
                 sim_time     = 0.0;
+                distance_m   = 0.0;
+                energy_j     = 0.0;
                 prev_counter = SDL_GetPerformanceCounter();
             }
 
@@ -982,6 +898,8 @@ int main(int, char**)
                     return shutdown_with_message(e.what());
                 }
                 sim_time     = 0.0;
+                distance_m   = 0.0;
+                energy_j     = 0.0;
                 prev_counter = SDL_GetPerformanceCounter();
             }
 
@@ -1045,22 +963,7 @@ int main(int, char**)
                 ImGui::Text("State size: %zu", sim.x.size());
             }
 
-            Telemetry tel = compute_telemetry(sim, accel_output, accel_controller.get());
-            ImGui::Separator();
-            ImGui::Text("Telemetry:");
-            ImGui::Text("Speed:     %8.3f m/s",  tel.speed);
-            ImGui::Text("v_long:    %8.3f m/s",  tel.v_long);
-            ImGui::Text("v_lat:     %8.3f m/s",  tel.v_lat);
-            ImGui::Text("v_global.x %8.3f m/s",  tel.v_global_x);
-            ImGui::Text("v_global.y %8.3f m/s",  tel.v_global_y);
-            ImGui::Text("a_long:    %8.3f m/s^2", tel.a_long);
-            ImGui::Text("a_lat:     %8.3f m/s^2", tel.a_lat);
-            ImGui::Text("Low-speed safety: %s", tel.low_speed_engaged ? "ENGAGED" : "Released");
-            if (accel_controller) {
-                ImGui::Text("Battery SOC:  %6.2f %%", tel.soc * 100.0);
-            } else {
-                ImGui::Text("Battery SOC:      N/A");
-            }
+            vtel::draw_telemetry_imgui(telemetry);
 
             ImGui::End();
         }

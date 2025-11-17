@@ -110,8 +110,10 @@ PowertrainOutput Powertrain::step(double throttle,
     const double soc_delta = (dt > 0.0) ? -battery_power * dt / capacity_joules_ : 0.0;
     soc_                   = std::clamp(soc_ + soc_delta, config_.min_soc, config_.max_soc);
 
-    const double total_torque = drive_torque - regen_torque;
-    return PowertrainOutput{total_torque, drive_torque, regen_torque};
+    const double total_torque     = drive_torque - regen_torque;
+    const double mechanical_power = mechanical_drive_power + mechanical_regen_power;
+
+    return PowertrainOutput{total_torque, drive_torque, regen_torque, mechanical_power, battery_power};
 }
 
 void Powertrain::reset() noexcept

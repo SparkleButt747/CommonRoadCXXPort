@@ -128,6 +128,9 @@ ControllerOutput FinalAccelController::step(const DriverIntent& intent, double s
         .hydraulic_force = hydraulic_force,
         .drag_force      = drag_force,
         .rolling_force   = rolling_force,
+        .mechanical_power = powertrain_output.mechanical_power,
+        .battery_power    = powertrain_output.battery_power,
+        .soc              = powertrain_.soc(),
     };
 }
 

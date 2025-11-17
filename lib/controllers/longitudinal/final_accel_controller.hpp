@@ -32,6 +32,9 @@ struct ControllerOutput {
     double hydraulic_force = 0.0;
     double drag_force      = 0.0;
     double rolling_force   = 0.0;
+    double mechanical_power = 0.0; // +: to wheels
+    double battery_power    = 0.0; // +: discharge
+    double soc              = 0.0;
 };
 
 class FinalAccelController {
