@@ -120,7 +120,7 @@ target_include_directories(velox
 
 target_compile_definitions(velox
     PUBLIC
-        VELOX_PARAM_ROOT="$<BUILD_INTERFACE:${VELOX_PARAM_DIR}>$<INSTALL_INTERFACE:${CMAKE_INSTALL_FULL_DATAROOTDIR}/velox/parameters>"
+        VELOX_PARAM_ROOT="${VELOX_PARAM_DIR}"
 )
 
 target_link_libraries(velox
@@ -270,6 +270,26 @@ if(BUILD_VELOX_TESTS)
             velox
     )
     add_test(NAME test_config_manager COMMAND test_config_manager)
+
+    add_executable(test_telemetry_population
+        tests/test_telemetry_population.cpp
+    )
+    target_link_libraries(test_telemetry_population
+        PRIVATE
+            velox
+    )
+    add_test(NAME test_telemetry_population COMMAND test_telemetry_population)
+
+    add_executable(test_simulation_daemon
+        tests/test_simulation_daemon.cpp
+    )
+    target_link_libraries(test_simulation_daemon
+        PRIVATE
+            velox
+    )
+    add_test(NAME test_simulation_daemon
+        COMMAND test_simulation_daemon
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
     add_executable(scenario_simulator
         tests/scenario_simulator.cpp
