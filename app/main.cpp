@@ -54,6 +54,7 @@
 #include "controllers/longitudinal/final_accel_controller.hpp"
 #include "io/config_manager.hpp"
 #include "simulation/model_timing.hpp"
+#include "simulation/simulation_daemon.hpp"
 #include "simulation/vehicle_simulator.hpp"
 #include "telemetry/telemetry.hpp"
 #include "telemetry/telemetry_imgui.hpp"
@@ -149,6 +150,17 @@ static void set_dt_warning(std::string& message,
         << " s; clamped requested " << requested_dt << " s to stay stable.";
     message     = oss.str();
     expires_at  = now_seconds + 4.0;
+}
+
+static const char* gear_display_name(vsim::GearSelection gear)
+{
+    switch (gear) {
+        case vsim::GearSelection::Park: return "Park";
+        case vsim::GearSelection::Reverse: return "Reverse";
+        case vsim::GearSelection::Neutral: return "Neutral";
+        case vsim::GearSelection::Drive: return "Drive";
+    }
+    return "Unknown";
 }
 
 // load parameters by id
@@ -699,6 +711,11 @@ int main(int, char**)
     double distance_m   = 0.0;
     double energy_j     = 0.0;
     float keyboard_brake_bias = 1.0f;
+    vsim::UserInput current_input{};
+    current_input.gear = vsim::GearSelection::Drive;
+    const vsim::UserInputLimits input_limits = vsim::kDefaultUserInputLimits;
+    std::string input_error_message;
+    double input_error_expires = 0.0;
 
     while (running) {
         bool request_reset = false;
@@ -716,6 +733,14 @@ int main(int, char**)
                     running = false;
                 } else if (event.key.keysym.sym == SDLK_r) {
                     request_reset = true;
+                } else if (event.key.keysym.sym == SDLK_1) {
+                    current_input.gear = vsim::GearSelection::Park;
+                } else if (event.key.keysym.sym == SDLK_2) {
+                    current_input.gear = vsim::GearSelection::Reverse;
+                } else if (event.key.keysym.sym == SDLK_3) {
+                    current_input.gear = vsim::GearSelection::Neutral;
+                } else if (event.key.keysym.sym == SDLK_4) {
+                    current_input.gear = vsim::GearSelection::Drive;
                 }
             }
         }
@@ -738,6 +763,8 @@ int main(int, char**)
             continue;
         }
 
+        const double now_seconds = static_cast<double>(SDL_GetTicks64()) * 0.001;
+
         const Uint8* keys = SDL_GetKeyboardState(nullptr);
 
         double throttle_cmd = 0.0;
@@ -758,38 +785,56 @@ int main(int, char**)
         if (steer_nudge > 1.0) steer_nudge = 1.0;
         if (steer_nudge < -1.0) steer_nudge = -1.0;
 
-        wheel_state = steering_wheel.update(steer_nudge, sim.dt);
-        const double current_delta = (sim.x.size() > 2) ? sim.x[2] : wheel_state.angle;
-        steer_state = steer_controller.update(wheel_state.angle, current_delta, sim.dt);
-        sim.u[0] = steer_state.rate;
+        current_input.timestamp             = sim_time;
+        current_input.dt                    = static_cast<double>(sim.dt);
+        current_input.steering_nudge        = steer_nudge;
+        current_input.longitudinal.throttle = throttle_cmd;
+        current_input.longitudinal.brake    = brake_cmd;
 
-        const double speed = std::max(0.0, simulation_speed(sim));
-        if (accel_controller) {
-            longi::DriverIntent intent{};
-            intent.throttle = throttle_cmd;
-            intent.brake    = brake_cmd;
-            accel_output    = accel_controller->step(intent, speed, sim.dt);
-            sim.u[1]        = std::clamp(accel_output.acceleration,
-                                         accel_cfg.accel_min,
-                                         accel_cfg.accel_max);
-        } else {
-            const double accel_raw = accel_cfg.accel_max * throttle_cmd + accel_cfg.accel_min * (-brake_cmd);
-            const double accel     = std::clamp(accel_raw, accel_cfg.accel_min, accel_cfg.accel_max);
-            accel_output          = longi::ControllerOutput{};
-            accel_output.throttle = throttle_cmd;
-            accel_output.brake    = brake_cmd;
-            accel_output.acceleration = accel;
-            sim.u[1] = accel;
+        bool input_valid = true;
+        vsim::UserInput sanitized_input{};
+        try {
+            sanitized_input = current_input.clamped(input_limits);
+        } catch (const std::exception& e) {
+            input_valid          = false;
+            input_error_message  = e.what();
+            input_error_expires  = now_seconds + 4.0;
+            accel_output         = longi::ControllerOutput{};
         }
 
-        if (sim.integrator) {
-            sim.integrator->set_dt(static_cast<double>(sim.dt));
-            const auto& updated_state = sim.integrator->step(sim.u);
-            sim.x                     = updated_state;
-            const double speed_after  = simulation_speed(sim);
-            distance_m += 0.5 * (std::abs(speed) + std::abs(speed_after)) * sim.dt;
-            energy_j   += accel_output.battery_power * sim.dt;
-            sim_time   += sim.dt;
+        if (input_valid) {
+            wheel_state = steering_wheel.update(sanitized_input.steering_nudge, sanitized_input.dt);
+            const double current_delta = (sim.x.size() > 2) ? sim.x[2] : wheel_state.angle;
+            steer_state = steer_controller.update(wheel_state.angle, current_delta, sanitized_input.dt);
+            sim.u[0]    = steer_state.rate;
+
+            const double speed = std::max(0.0, simulation_speed(sim));
+            if (accel_controller) {
+                accel_output = accel_controller->step(sanitized_input.longitudinal, speed, sanitized_input.dt);
+                sim.u[1]     = std::clamp(accel_output.acceleration,
+                                          accel_cfg.accel_min,
+                                          accel_cfg.accel_max);
+            } else {
+                const double accel_raw =
+                    accel_cfg.accel_max * sanitized_input.longitudinal.throttle
+                    + accel_cfg.accel_min * (-sanitized_input.longitudinal.brake);
+                const double accel = std::clamp(accel_raw, accel_cfg.accel_min, accel_cfg.accel_max);
+                accel_output        = longi::ControllerOutput{};
+                accel_output.throttle = sanitized_input.longitudinal.throttle;
+                accel_output.brake    = sanitized_input.longitudinal.brake;
+                accel_output.acceleration = accel;
+                sim.u[1] = accel;
+            }
+
+            if (sim.integrator) {
+                sim.integrator->set_dt(sanitized_input.dt);
+                const auto& updated_state = sim.integrator->step(sim.u);
+                sim.x                     = updated_state;
+                const double speed_after  = simulation_speed(sim);
+                distance_m += 0.5 * (std::abs(speed) + std::abs(speed_after)) * sanitized_input.dt;
+                energy_j   += accel_output.battery_power * sanitized_input.dt;
+                sim_time   += sanitized_input.dt;
+            }
         }
 
         const auto& state_for_telemetry = sim.integrator ? sim.integrator->state() : sim.x;
@@ -809,7 +854,6 @@ int main(int, char**)
         ImGui_ImplSDLRenderer2_NewFrame();
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
-        const double now_seconds = static_cast<double>(SDL_GetTicks64()) * 0.001;
 
         {
             ImGui::Begin("Simulation Control");
@@ -819,6 +863,7 @@ int main(int, char**)
 
             ImGui::Text("Keyboard controls");
             ImGui::Text("W/Up: throttle  A/D or ←/→: steer  R: reset  ESC: quit");
+            ImGui::Text("1/2/3/4: gear P/R/N/D");
             if (ImGui::SliderFloat("Keyboard brake bias", &keyboard_brake_bias, 0.0f, 1.0f, "%.2f")) {
                 keyboard_brake_bias = std::clamp(keyboard_brake_bias, 0.0f, 1.0f);
             }
@@ -826,6 +871,12 @@ int main(int, char**)
                 "S/Down applies %.0f%%%% braking using the bias slider for proportional stops."
                 " Hold SPACE to request 100%%%% emergency braking.",
                 keyboard_brake_bias * 100.0f);
+            ImGui::Text("Gear: %s", gear_display_name(current_input.gear));
+            if (input_error_expires > now_seconds) {
+                ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f),
+                                   "Input error: %s",
+                                   input_error_message.c_str());
+            }
             ImGui::Separator();
 
             int model_idx = static_cast<int>(currentModel);

@@ -14,10 +14,34 @@
 
 namespace velox::simulation {
 
+enum class GearSelection {
+    Park,
+    Reverse,
+    Neutral,
+    Drive,
+};
+
+struct UserInputLimits {
+    double min_throttle{0.0};
+    double max_throttle{1.0};
+    double min_brake{0.0};
+    double max_brake{1.0};
+    double min_steering_nudge{-1.0};
+    double max_steering_nudge{1.0};
+};
+
 struct UserInput {
     controllers::longitudinal::DriverIntent longitudinal{};
     double                                  steering_nudge = 0.0;
+    GearSelection                           gear{GearSelection::Drive};
+    double                                  timestamp{0.0};
+    double                                  dt{0.0};
+
+    [[nodiscard]] UserInput clamped(const UserInputLimits& limits = {}) const;
+    void validate(const UserInputLimits& limits = {}) const;
 };
+
+inline constexpr UserInputLimits kDefaultUserInputLimits{};
 
 struct ResetParams {
     std::optional<ModelType> model{};
@@ -45,8 +69,8 @@ public:
 
     void reset(const ResetParams& params);
 
-    telemetry::SimulationTelemetry step(const UserInput& input, double dt);
-    std::vector<telemetry::SimulationTelemetry> step(const std::vector<UserInput>& batch_inputs, double dt);
+    telemetry::SimulationTelemetry step(const UserInput& input);
+    std::vector<telemetry::SimulationTelemetry> step(const std::vector<UserInput>& batch_inputs);
 
     [[nodiscard]] const VehicleSimulator* simulator() const { return simulator_.get(); }
     [[nodiscard]] const controllers::longitudinal::FinalAccelController* accel_controller() const
