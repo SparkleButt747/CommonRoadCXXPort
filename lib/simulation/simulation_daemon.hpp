@@ -57,6 +57,7 @@ struct SimulationSnapshot {
     std::vector<double>               state{};
     telemetry::SimulationTelemetry    telemetry{};
     double                            dt{0.0};
+    double                            simulation_time_s{0.0};
 };
 
 class SimulationDaemon {
@@ -101,7 +102,7 @@ private:
     InitParams              init_{};
     io::ConfigManager       configs_{};
     ModelType               model_{};
-    ModelTimingInfo         timing_info_{};
+    ModelTiming             timing_{};
 
     models::VehicleParameters                              params_{};
     ModelInterface                                          model_interface_{};
@@ -129,10 +130,10 @@ private:
         const controllers::FinalSteerController::Output&    steering_output) const;
     void log_warning(const std::string& message) const;
     void log_info(const std::string& message) const;
-    double sanitize_dt(double requested_dt) const;
     void log_clamped_input(const UserInput& original, const UserInput& clamped) const;
     void log_controller_limits(const controllers::longitudinal::ControllerOutput& accel_output,
                                const controllers::FinalSteerController::Output& steer_output) const;
+    void log_timing_adjustments(const ModelTiming::StepSchedule& schedule) const;
     std::string context_description(std::string_view action) const;
     [[noreturn]] void rethrow_with_context(const char* action, const std::exception& ex) const;
 };

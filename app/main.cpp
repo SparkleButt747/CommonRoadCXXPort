@@ -848,7 +848,8 @@ int main(int, char**)
             sim.integrator ? &sim.integrator->safety() : nullptr,
             sim.integrator ? sim.integrator->speed() : simulation_speed(sim),
             distance_m,
-            energy_j);
+            energy_j,
+            sim_time);
 
         // ImGui frame
         ImGui_ImplSDLRenderer2_NewFrame();

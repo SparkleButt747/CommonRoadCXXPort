@@ -294,7 +294,7 @@ SimulationDaemon::SimulationDaemon(const InitParams& init)
     : init_(init)
     , configs_(init.config_root, init.parameter_root)
     , model_(init.model)
-    , timing_info_(configs_.load_model_timing(init.model))
+    , timing_(configs_.load_model_timing(init.model))
     , log_sink_(init.log_sink)
 {
     load_vehicle_parameters(init.vehicle_id);
@@ -303,7 +303,7 @@ SimulationDaemon::SimulationDaemon(const InitParams& init)
     const auto default_state = build_model_interface(model_).init_fn({}, params_);
     ResetParams reset_params{};
     reset_params.initial_state = default_state;
-    reset_params.dt            = timing_info_.nominal_dt;
+    reset_params.dt            = timing_.info().nominal_dt;
     reset(reset_params);
 }
 
@@ -318,16 +318,18 @@ void SimulationDaemon::reset(const ResetParams& params)
             load_vehicle_parameters(*params.vehicle_id);
         }
 
-        timing_info_    = configs_.load_model_timing(model_);
+        timing_         = ModelTiming(configs_.load_model_timing(model_));
         model_interface_ = build_model_interface(model_);
 
         rebuild_controllers();
         rebuild_safety();
 
-        const double dt = sanitize_dt(params.dt.value_or(timing_info_.nominal_dt));
-        const auto   initial = seed_state(model_interface_, params_, params.initial_state);
+        const double initial_request = params.dt.value_or(timing_.info().nominal_dt);
+        const auto   schedule        = timing_.plan_steps(initial_request);
+        log_timing_adjustments(schedule);
+        const auto   initial        = seed_state(model_interface_, params_, params.initial_state);
 
-        rebuild_simulator(dt, initial);
+        rebuild_simulator(schedule.substeps.front(), initial);
 
         const double initial_angle = (initial.size() > 2) ? initial[2] : 0.0;
         if (steering_wheel_) {
@@ -342,7 +344,8 @@ void SimulationDaemon::reset(const ResetParams& params)
 
         cumulative_distance_m_ = 0.0;
         cumulative_energy_j_   = 0.0;
-        last_telemetry_        = {};
+        timing_.reset();
+        last_telemetry_ = {};
     } catch (const ::velox::errors::VeloxError&) {
         throw;
     } catch (const std::exception& ex) {
@@ -359,24 +362,32 @@ telemetry::SimulationTelemetry SimulationDaemon::step(const UserInput& input)
 
         auto sanitized_input = input.clamped(kDefaultUserInputLimits);
         log_clamped_input(input, sanitized_input);
-        sanitized_input.dt = sanitize_dt(sanitized_input.dt);
 
-        const double dt            = sanitized_input.dt;
-        const double start_speed   = simulator_->speed();
-        const double current_angle = (simulator_->state().size() > 2) ? simulator_->state()[2] : 0.0;
-        const auto steering_output = steering_wheel_->update(sanitized_input.steering_nudge, dt);
-        const auto final_output = final_steer_->update(steering_output.target_angle, current_angle, dt);
+        const auto schedule = timing_.plan_steps(sanitized_input.dt);
+        log_timing_adjustments(schedule);
 
-        const double speed = simulator_->speed();
-        const auto accel_output = accel_controller_->step(sanitized_input.longitudinal, speed, dt);
+        controllers::longitudinal::ControllerOutput accel_output{};
+        controllers::FinalSteerController::Output   final_output{};
+        controllers::SteeringWheel::Output          steering_output{};
 
-        std::vector<double> control{final_output.rate, accel_output.acceleration};
-        simulator_->set_dt(dt);
-        simulator_->step(control);
+        for (const double dt : schedule.substeps) {
+            const double start_speed   = simulator_->speed();
+            const double current_angle = (simulator_->state().size() > 2) ? simulator_->state()[2] : 0.0;
+            steering_output = steering_wheel_->update(sanitized_input.steering_nudge, dt);
+            final_output = final_steer_->update(steering_output.target_angle, current_angle, dt);
 
-        const double end_speed = simulator_->speed();
-        cumulative_distance_m_ += 0.5 * (std::abs(start_speed) + std::abs(end_speed)) * dt;
-        cumulative_energy_j_   += accel_output.battery_power * dt;
+            const double speed = simulator_->speed();
+            accel_output = accel_controller_->step(sanitized_input.longitudinal, speed, dt);
+
+            std::vector<double> control{final_output.rate, accel_output.acceleration};
+            simulator_->set_dt(dt);
+            simulator_->step(control);
+
+            const double end_speed = simulator_->speed();
+            cumulative_distance_m_ += 0.5 * (std::abs(start_speed) + std::abs(end_speed)) * dt;
+            cumulative_energy_j_   += accel_output.battery_power * dt;
+            timing_.record_step(dt);
+        }
 
         last_telemetry_ = compute_telemetry(accel_output, steering_output, final_output);
         log_controller_limits(accel_output, final_output);
@@ -402,9 +413,10 @@ SimulationSnapshot SimulationDaemon::snapshot() const
 {
     SimulationSnapshot snap{};
     snap.telemetry = last_telemetry_;
+    snap.simulation_time_s = timing_.cumulative_time();
     if (simulator_) {
-        snap.state = simulator_->state();
-        snap.dt    = simulator_->dt();
+        snap.state             = simulator_->state();
+        snap.dt                = simulator_->dt();
     }
     return snap;
 }
@@ -469,7 +481,8 @@ telemetry::SimulationTelemetry SimulationDaemon::compute_telemetry(
                                                    safety_ptr,
                                                    measured_speed,
                                                    cumulative_distance_m_,
-                                                   cumulative_energy_j_);
+                                                   cumulative_energy_j_,
+                                                   timing_.cumulative_time());
 }
 
 void SimulationDaemon::log_warning(const std::string& message) const
@@ -480,21 +493,6 @@ void SimulationDaemon::log_warning(const std::string& message) const
 void SimulationDaemon::log_info(const std::string& message) const
 {
     logging::log(log_sink_.get(), logging::Level::Info, message);
-}
-
-double SimulationDaemon::sanitize_dt(double requested_dt) const
-{
-    const double clamped = std::clamp(requested_dt,
-                                      static_cast<double>(kMinStableDt),
-                                      static_cast<double>(timing_info_.max_dt));
-    if (std::abs(clamped - requested_dt) > 1e-9) {
-        std::ostringstream oss;
-        oss << "Requested dt " << requested_dt << "s clamped to " << clamped
-            << "s for " << model_display_name(model_) << " stability bounds ["
-            << kMinStableDt << ", " << timing_info_.max_dt << "]";
-        log_warning(oss.str());
-    }
-    return clamped;
 }
 
 void SimulationDaemon::log_clamped_input(const UserInput& original, const UserInput& clamped) const
@@ -553,6 +551,24 @@ void SimulationDaemon::log_controller_limits(const controllers::longitudinal::Co
             oss << "Steering angle limited within [" << cfg.min_angle << ", " << cfg.max_angle << "]";
             log_warning(oss.str());
         }
+    }
+}
+
+void SimulationDaemon::log_timing_adjustments(const ModelTiming::StepSchedule& schedule) const
+{
+    if (schedule.clamped_to_min) {
+        std::ostringstream oss;
+        oss << "Requested dt " << schedule.requested_dt << "s raised to minimum stable timestep "
+            << schedule.clamped_dt << "s";
+        log_warning(oss.str());
+    }
+
+    if (schedule.used_substeps && !schedule.substeps.empty()) {
+        const auto max_dt = *std::max_element(schedule.substeps.begin(), schedule.substeps.end());
+        std::ostringstream oss;
+        oss << "Requested dt " << schedule.requested_dt << "s exceeds stable max " << timing_.info().max_dt
+            << "s; using " << schedule.substeps.size() << " sub-steps (max " << max_dt << "s) for stability";
+        log_warning(oss.str());
     }
 }
 

@@ -96,7 +96,8 @@ SimulationTelemetry compute_simulation_telemetry(
     const simulation::LowSpeedSafety* safety,
     double measured_speed,
     double cumulative_distance_m,
-    double cumulative_energy_j)
+    double cumulative_energy_j,
+    double cumulative_sim_time_s)
 {
     SimulationTelemetry telemetry{};
 
@@ -247,9 +248,10 @@ SimulationTelemetry compute_simulation_telemetry(
     telemetry.rear_axle.left  = rear_left;
     telemetry.rear_axle.right = rear_right;
 
-    telemetry.totals.distance_traveled_m   = cumulative_distance_m;
+    telemetry.totals.distance_traveled_m    = cumulative_distance_m;
     telemetry.totals.energy_consumed_joules = cumulative_energy_j;
-    telemetry.low_speed_engaged            = safety ? safety->engaged() : false;
+    telemetry.totals.simulation_time_s      = cumulative_sim_time_s;
+    telemetry.low_speed_engaged             = safety ? safety->engaged() : false;
 
     return telemetry;
 }
@@ -328,7 +330,8 @@ std::string to_json(const SimulationTelemetry& telemetry)
 
     oss << "\"totals\":{"
         << "\"distance_traveled_m\":" << telemetry.totals.distance_traveled_m << ","
-        << "\"energy_consumed_joules\":" << telemetry.totals.energy_consumed_joules << "},";
+        << "\"energy_consumed_joules\":" << telemetry.totals.energy_consumed_joules << ","
+        << "\"simulation_time_s\":" << telemetry.totals.simulation_time_s << "},";
 
     oss << "\"low_speed_engaged\":" << (telemetry.low_speed_engaged ? "true" : "false")
         << '}';

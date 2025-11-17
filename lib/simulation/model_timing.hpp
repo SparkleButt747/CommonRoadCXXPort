@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstddef>
+#include <vector>
 
 namespace velox::simulation {
 
@@ -52,5 +53,32 @@ inline constexpr const char* model_display_name(ModelType type)
     const std::size_t index = static_cast<std::size_t>(type);
     return detail::kModelNames[index];
 }
+
+class ModelTiming {
+public:
+    struct StepSchedule {
+        double              requested_dt{0.0};
+        double              clamped_dt{0.0};
+        std::vector<double> substeps{};
+        bool                clamped_to_min{false};
+        bool                used_substeps{false};
+
+        double total_duration() const;
+    };
+
+    explicit ModelTiming(ModelTimingInfo info = {}, double start_time_s = 0.0);
+
+    void reset(double start_time_s = 0.0);
+
+    [[nodiscard]] const ModelTimingInfo& info() const { return info_; }
+    [[nodiscard]] double cumulative_time() const { return cumulative_time_s_; }
+
+    [[nodiscard]] StepSchedule plan_steps(double requested_dt) const;
+    void                       record_step(double dt);
+
+private:
+    ModelTimingInfo info_{};
+    double          cumulative_time_s_{0.0};
+};
 
 } // namespace velox::simulation
