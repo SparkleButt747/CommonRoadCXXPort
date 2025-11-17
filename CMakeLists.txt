@@ -99,6 +99,7 @@ add_library(velox STATIC
 
     # simulation
     ${VELOX_LIB_DIR}/simulation/low_speed_safety.cpp
+    ${VELOX_LIB_DIR}/simulation/simulation_daemon.cpp
     ${VELOX_LIB_DIR}/simulation/vehicle_simulator.cpp
 
     # parameter loader
