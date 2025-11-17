@@ -224,7 +224,6 @@ SimulationDaemon::SimulationDaemon(const InitParams& init)
     : init_(init)
     , configs_(init.config_root, init.parameter_root)
     , model_(init.model)
-    , telemetry_options_(init.telemetry)
 {
     load_vehicle_parameters(init.vehicle_id);
 
@@ -269,10 +268,12 @@ void SimulationDaemon::reset(const ResetParams& params)
         accel_controller_->reset();
     }
 
-    last_telemetry_ = {};
+    cumulative_distance_m_ = 0.0;
+    cumulative_energy_j_   = 0.0;
+    last_telemetry_        = {};
 }
 
-SimulationTelemetry SimulationDaemon::step(const UserInput& input, double dt)
+telemetry::SimulationTelemetry SimulationDaemon::step(const UserInput& input, double dt)
 {
     if (!simulator_ || !accel_controller_ || !steering_wheel_ || !final_steer_ || !safety_) {
         throw std::runtime_error("SimulationDaemon not initialized");
@@ -281,6 +282,7 @@ SimulationTelemetry SimulationDaemon::step(const UserInput& input, double dt)
         throw std::invalid_argument("dt must be positive");
     }
 
+    const double start_speed  = simulator_->speed();
     const double current_angle = (simulator_->state().size() > 2) ? simulator_->state()[2] : 0.0;
     const auto steering_output = steering_wheel_->update(input.steering_nudge, dt);
     const auto final_output = final_steer_->update(steering_output.target_angle, current_angle, dt);
@@ -292,13 +294,17 @@ SimulationTelemetry SimulationDaemon::step(const UserInput& input, double dt)
     simulator_->set_dt(dt);
     simulator_->step(control);
 
-    last_telemetry_ = compute_telemetry(accel_output, final_output);
+    const double end_speed = simulator_->speed();
+    cumulative_distance_m_ += 0.5 * (std::abs(start_speed) + std::abs(end_speed)) * dt;
+    cumulative_energy_j_   += accel_output.battery_power * dt;
+
+    last_telemetry_ = compute_telemetry(accel_output, steering_output, final_output);
     return last_telemetry_;
 }
 
-std::vector<SimulationTelemetry> SimulationDaemon::step(const std::vector<UserInput>& batch_inputs, double dt)
+std::vector<telemetry::SimulationTelemetry> SimulationDaemon::step(const std::vector<UserInput>& batch_inputs, double dt)
 {
-    std::vector<SimulationTelemetry> telemetry;
+    std::vector<telemetry::SimulationTelemetry> telemetry;
     telemetry.reserve(batch_inputs.size());
     for (const auto& input : batch_inputs) {
         telemetry.push_back(step(input, dt));
@@ -358,100 +364,26 @@ void SimulationDaemon::rebuild_simulator(double dt, const std::vector<double>& i
     simulator_->reset(initial_state);
 }
 
-SimulationTelemetry SimulationDaemon::compute_telemetry(
+telemetry::SimulationTelemetry SimulationDaemon::compute_telemetry(
     const controllers::longitudinal::ControllerOutput& accel_output,
+    const controllers::SteeringWheel::Output& steering_input,
     const controllers::FinalSteerController::Output& steering_output) const
 {
-    SimulationTelemetry t{};
     const auto* simulator_ptr = simulator_.get();
-    const auto& state = simulator_ptr ? simulator_ptr->state() : std::vector<double>{};
+    const auto* safety_ptr    = simulator_ptr ? &simulator_ptr->safety() : safety_ ? &(*safety_) : nullptr;
+    const auto& state         = simulator_ptr ? simulator_ptr->state() : std::vector<double>{};
+    const double measured_speed = simulator_ptr ? simulator_ptr->speed() : 0.0;
 
-    const double wheelbase = params_.a + params_.b;
-    const double delta     = (state.size() > 2) ? state[2] : steering_output.angle;
-
-    double v_long = 0.0;
-    double v_lat  = 0.0;
-    double yaw    = 0.0;
-    double beta   = 0.0;
-
-    switch (model_) {
-        case ModelType::KS_REAR:
-        case ModelType::KS_COG:
-        case ModelType::KST:
-            if (state.size() >= 5) {
-                v_long = state[3];
-                yaw    = state[4];
-            }
-            beta = 0.0;
-            break;
-
-        case ModelType::ST:
-            if (state.size() >= 7) {
-                v_long = state[3];
-                yaw    = state[4];
-                beta   = state[6];
-            }
-            break;
-
-        case ModelType::STD:
-            if (state.size() >= 9) {
-                v_long = state[3];
-                yaw    = state[4];
-                beta   = state[6];
-            }
-            break;
-
-        case ModelType::MB:
-            if (state.size() >= 11) {
-                v_long = state[3];
-                v_lat  = state[10];
-                yaw    = state[4];
-            }
-            if (std::abs(v_long) > 1e-6 || std::abs(v_lat) > 1e-6) {
-                beta = std::atan2(v_lat, v_long);
-            }
-            break;
-    }
-
-    const double speed = std::hypot(v_long, v_lat);
-    t.speed            = speed;
-    t.v_long           = v_long;
-    t.v_lat            = v_lat;
-
-    if (telemetry_options_.include_global_velocity) {
-        const double heading = yaw + beta;
-        t.v_global_x         = speed * std::cos(heading);
-        t.v_global_y         = speed * std::sin(heading);
-    }
-
-    if (telemetry_options_.include_acceleration) {
-        t.a_long = accel_output.acceleration;
-        switch (model_) {
-            case ModelType::MB:
-                if (state.size() > 5) {
-                    t.a_lat = v_long * state[5];
-                }
-                break;
-            default:
-                if (wheelbase > 0.0) {
-                    t.a_lat = v_long * v_long * std::tan(delta) / wheelbase;
-                } else {
-                    t.a_lat = 0.0;
-                }
-                break;
-        }
-    }
-
-    if (simulator_ptr) {
-        t.speed             = std::max(0.0, simulator_ptr->speed());
-        t.low_speed_engaged = simulator_ptr->safety().engaged();
-    }
-
-    if (accel_controller_) {
-        t.soc = accel_controller_->powertrain().soc();
-    }
-
-    return t;
+    return telemetry::compute_simulation_telemetry(model_,
+                                                   params_,
+                                                   state,
+                                                   accel_output,
+                                                   steering_input,
+                                                   steering_output,
+                                                   safety_ptr,
+                                                   measured_speed,
+                                                   cumulative_distance_m_,
+                                                   cumulative_energy_j_);
 }
 
 } // namespace velox::simulation

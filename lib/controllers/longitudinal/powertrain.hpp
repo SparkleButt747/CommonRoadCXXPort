@@ -20,6 +20,8 @@ struct PowertrainOutput {
     double total_torque = 0.0;
     double drive_torque = 0.0;
     double regen_torque = 0.0;
+    double mechanical_power = 0.0; // +: to wheels, -: regen
+    double battery_power    = 0.0; // +: discharge, -: charge
 };
 
 class Powertrain {

@@ -10,25 +10,9 @@
 #include "simulation/low_speed_safety.hpp"
 #include "simulation/model_timing.hpp"
 #include "simulation/vehicle_simulator.hpp"
+#include "telemetry/telemetry.hpp"
 
 namespace velox::simulation {
-
-struct TelemetryOptions {
-    bool include_global_velocity = true;
-    bool include_acceleration    = true;
-};
-
-struct SimulationTelemetry {
-    double speed             = 0.0;
-    double v_long            = 0.0;
-    double v_lat             = 0.0;
-    double v_global_x        = 0.0;
-    double v_global_y        = 0.0;
-    double a_long            = 0.0;
-    double a_lat             = 0.0;
-    bool   low_speed_engaged = false;
-    double soc               = 0.0;
-};
 
 struct UserInput {
     controllers::longitudinal::DriverIntent longitudinal{};
@@ -43,9 +27,9 @@ struct ResetParams {
 };
 
 struct SimulationSnapshot {
-    std::vector<double>   state{};
-    SimulationTelemetry   telemetry{};
-    double                dt{0.0};
+    std::vector<double>               state{};
+    telemetry::SimulationTelemetry    telemetry{};
+    double                            dt{0.0};
 };
 
 class SimulationDaemon {
@@ -55,15 +39,14 @@ public:
         int                       vehicle_id{1};
         std::filesystem::path     config_root{};
         std::filesystem::path     parameter_root{};
-        TelemetryOptions          telemetry{};
     };
 
     explicit SimulationDaemon(const InitParams& init);
 
     void reset(const ResetParams& params);
 
-    SimulationTelemetry step(const UserInput& input, double dt);
-    std::vector<SimulationTelemetry> step(const std::vector<UserInput>& batch_inputs, double dt);
+    telemetry::SimulationTelemetry step(const UserInput& input, double dt);
+    std::vector<telemetry::SimulationTelemetry> step(const std::vector<UserInput>& batch_inputs, double dt);
 
     [[nodiscard]] const VehicleSimulator* simulator() const { return simulator_.get(); }
     [[nodiscard]] const controllers::longitudinal::FinalAccelController* accel_controller() const
@@ -80,7 +63,7 @@ public:
     }
     [[nodiscard]] const models::VehicleParameters& vehicle_parameters() const { return params_; }
     [[nodiscard]] ModelType model() const { return model_; }
-    [[nodiscard]] const TelemetryOptions& telemetry_options() const { return telemetry_options_; }
+    [[nodiscard]] const telemetry::SimulationTelemetry& telemetry() const { return last_telemetry_; }
 
     [[nodiscard]] SimulationSnapshot snapshot() const;
 
@@ -88,7 +71,6 @@ private:
     InitParams              init_{};
     io::ConfigManager       configs_{};
     ModelType               model_{};
-    TelemetryOptions        telemetry_options_{};
 
     models::VehicleParameters                              params_{};
     ModelInterface                                          model_interface_{};
@@ -99,14 +81,19 @@ private:
     std::optional<controllers::FinalSteerController>       final_steer_{};
     std::optional<controllers::longitudinal::FinalAccelController> accel_controller_{};
 
-    SimulationTelemetry last_telemetry_{};
+    double cumulative_distance_m_{0.0};
+    double cumulative_energy_j_{0.0};
+
+    telemetry::SimulationTelemetry last_telemetry_{};
 
     void load_vehicle_parameters(int vehicle_id);
     void rebuild_controllers();
     void rebuild_safety();
     void rebuild_simulator(double dt, const std::vector<double>& initial_state);
-    SimulationTelemetry compute_telemetry(const controllers::longitudinal::ControllerOutput& accel_output,
-                                          const controllers::FinalSteerController::Output&    steering_output) const;
+    telemetry::SimulationTelemetry compute_telemetry(
+        const controllers::longitudinal::ControllerOutput& accel_output,
+        const controllers::SteeringWheel::Output& steering_input,
+        const controllers::FinalSteerController::Output&    steering_output) const;
 };
 
 } // namespace velox::simulation
