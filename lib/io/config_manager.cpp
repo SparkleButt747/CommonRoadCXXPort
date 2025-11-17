@@ -5,6 +5,8 @@
 #include <stdexcept>
 #include <string>
 
+#include "common/errors.hpp"
+
 namespace velox::io {
 
 namespace {
@@ -17,14 +19,14 @@ T required_scalar(const YAML::Node& node, const std::string& key, const fs::path
     if (!value) {
         std::ostringstream oss;
         oss << "Missing required key '" << key << "' in " << path.string();
-        throw std::runtime_error(oss.str());
+        throw ::velox::errors::ConfigError(VELOX_LOC(oss.str()));
     }
     try {
         return value.as<T>();
     } catch (const YAML::BadConversion& ex) {
         std::ostringstream oss;
         oss << "Invalid type for key '" << key << "' in " << path.string() << ": " << ex.what();
-        throw std::runtime_error(oss.str());
+        throw ::velox::errors::ConfigError(VELOX_LOC(oss.str()));
     }
 }
 
@@ -138,13 +140,13 @@ simulation::ModelTimingInfo ConfigManager::load_model_timing(simulation::ModelTy
     if (info.nominal_dt <= 0.0f) {
         std::ostringstream oss;
         oss << "nominal_dt for '" << key << "' in " << timing_path.string() << " must be positive";
-        throw std::invalid_argument(oss.str());
+        throw ::velox::errors::ConfigError(VELOX_LOC(oss.str()));
     }
     if (info.max_dt < info.nominal_dt || info.max_dt < simulation::kMinStableDt) {
         std::ostringstream oss;
         oss << "max_dt for '" << key << "' in " << timing_path.string()
             << " must be >= nominal_dt and >= " << simulation::kMinStableDt;
-        throw std::invalid_argument(oss.str());
+        throw ::velox::errors::ConfigError(VELOX_LOC(oss.str()));
     }
 
     return info;
@@ -163,7 +165,7 @@ YAML::Node ConfigManager::load_yaml(const std::filesystem::path& path, const std
     if (!std::filesystem::exists(path)) {
         std::ostringstream oss;
         oss << "Missing " << description << " config file: " << path.string();
-        throw std::runtime_error(oss.str());
+        throw ::velox::errors::ConfigError(VELOX_LOC(oss.str()));
     }
 
     try {
@@ -171,7 +173,7 @@ YAML::Node ConfigManager::load_yaml(const std::filesystem::path& path, const std
     } catch (const YAML::ParserException& ex) {
         std::ostringstream oss;
         oss << "Failed to parse " << description << " config at " << path.string() << ": " << ex.what();
-        throw std::runtime_error(oss.str());
+        throw ::velox::errors::ConfigError(VELOX_LOC(oss.str()));
     }
 }
 
@@ -247,7 +249,7 @@ controllers::SteeringConfig ConfigManager::parse_steering_config(const YAML::Nod
     if (!wheel || !wheel.IsMap()) {
         std::ostringstream oss;
         oss << "steering config missing 'wheel' section in " << path.string();
-        throw std::runtime_error(oss.str());
+        throw ::velox::errors::ConfigError(VELOX_LOC(oss.str()));
     }
     cfg.wheel.max_angle           = required_scalar<double>(wheel, "max_angle", path);
     cfg.wheel.max_rate            = required_scalar<double>(wheel, "max_rate", path);
@@ -259,7 +261,7 @@ controllers::SteeringConfig ConfigManager::parse_steering_config(const YAML::Nod
     if (!final || !final.IsMap()) {
         std::ostringstream oss;
         oss << "steering config missing 'final' section in " << path.string();
-        throw std::runtime_error(oss.str());
+        throw ::velox::errors::ConfigError(VELOX_LOC(oss.str()));
     }
     cfg.final.min_angle               = required_scalar<double>(final, "min_angle", path);
     cfg.final.max_angle               = required_scalar<double>(final, "max_angle", path);

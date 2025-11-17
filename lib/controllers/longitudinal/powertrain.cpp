@@ -5,40 +5,42 @@
 #include <stdexcept>
 #include <string>
 
+#include "common/errors.hpp"
+
 namespace velox::controllers::longitudinal {
 
 void PowertrainConfig::validate() const
 {
     auto finite_and_non_negative = [](double value, const char* name) {
         if (!std::isfinite(value) || value < 0.0) {
-            throw std::invalid_argument(std::string{name} + " must be non-negative and finite");
+            throw ::velox::errors::ConfigError(VELOX_LOC(std::string{name} + " must be non-negative and finite"));
         }
     };
 
     finite_and_non_negative(max_drive_torque, "powertrain.max_drive_torque");
     finite_and_non_negative(max_regen_torque, "powertrain.max_regen_torque");
     if (!std::isfinite(max_power) || max_power < 0.0) {
-        throw std::invalid_argument("powertrain.max_power must be non-negative and finite");
+        throw ::velox::errors::ConfigError(VELOX_LOC("powertrain.max_power must be non-negative and finite"));
     }
     finite_and_non_negative(drive_efficiency, "powertrain.drive_efficiency");
     finite_and_non_negative(regen_efficiency, "powertrain.regen_efficiency");
     if (drive_efficiency <= 0.0 || drive_efficiency > 1.0) {
-        throw std::invalid_argument("powertrain.drive_efficiency must be in (0, 1]");
+        throw ::velox::errors::ConfigError(VELOX_LOC("powertrain.drive_efficiency must be in (0, 1]"));
     }
     if (regen_efficiency < 0.0 || regen_efficiency > 1.0) {
-        throw std::invalid_argument("powertrain.regen_efficiency must be in [0, 1]");
+        throw ::velox::errors::ConfigError(VELOX_LOC("powertrain.regen_efficiency must be in [0, 1]"));
     }
     if (!std::isfinite(min_soc) || !std::isfinite(max_soc) || !std::isfinite(initial_soc)) {
-        throw std::invalid_argument("powertrain SOC bounds must be finite");
+        throw ::velox::errors::ConfigError(VELOX_LOC("powertrain SOC bounds must be finite"));
     }
     if (min_soc < 0.0 || max_soc > 1.0) {
-        throw std::invalid_argument("powertrain SOC bounds must lie within [0, 1]");
+        throw ::velox::errors::ConfigError(VELOX_LOC("powertrain SOC bounds must lie within [0, 1]"));
     }
     if (!(min_soc <= initial_soc && initial_soc <= max_soc)) {
-        throw std::invalid_argument("0 <= min_soc <= initial_soc <= max_soc <= 1 must hold");
+        throw ::velox::errors::ConfigError(VELOX_LOC("0 <= min_soc <= initial_soc <= max_soc <= 1 must hold"));
     }
     if (!std::isfinite(battery_capacity_kwh) || battery_capacity_kwh <= 0.0) {
-        throw std::invalid_argument("powertrain.battery_capacity_kwh must be positive and finite");
+        throw ::velox::errors::ConfigError(VELOX_LOC("powertrain.battery_capacity_kwh must be positive and finite"));
     }
 }
 
@@ -50,10 +52,10 @@ Powertrain::Powertrain(PowertrainConfig config, double wheel_radius)
 {
     config_.validate();
     if (!std::isfinite(wheel_radius_) || wheel_radius_ <= 0.0) {
-        throw std::invalid_argument("wheel_radius must be positive and finite");
+        throw ::velox::errors::ConfigError(VELOX_LOC("wheel_radius must be positive and finite"));
     }
     if (!std::isfinite(capacity_joules_) || capacity_joules_ <= 0.0) {
-        throw std::invalid_argument("battery capacity must be positive");
+        throw ::velox::errors::ConfigError(VELOX_LOC("battery capacity must be positive"));
     }
 }
 

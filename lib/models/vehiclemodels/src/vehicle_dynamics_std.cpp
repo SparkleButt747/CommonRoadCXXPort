@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <vector>
 
+#include "common/errors.hpp"
 #include "models/steering_constraints.hpp"
 #include "models/acceleration_constraints.hpp"
 #include "models/vehicle_dynamics_ks_cog.hpp"
@@ -33,7 +34,8 @@ std::vector<double> vehicle_dynamics_std(const std::vector<double>& x,
 {
     // Sanity: expect 9 states and 2 inputs
     if (x.size() != 9 || u_init.size() != 2) {
-        throw std::runtime_error("vehicle_dynamics_std: expected x.size()==9 and u_init.size()==2");
+        throw ::velox::errors::SimulationError(
+            VELOX_LOC("vehicle_dynamics_std: expected x.size()==9 and u_init.size()==2"));
     }
 
     // ---------------------------------------------------------------------
