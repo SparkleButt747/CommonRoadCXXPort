@@ -4,7 +4,8 @@
 #include <array>
 #include <cmath>
 #include <sstream>
-#include <stdexcept>
+
+#include "common/errors.hpp"
 
 #include "models/vehicle_dynamics_ks_cog.hpp"
 #include "models/vehiclemodels/init_kst.hpp"
@@ -37,7 +38,7 @@ void UserInput::validate(const UserInputLimits& limits) const
         if (!std::isfinite(value)) {
             std::ostringstream oss;
             oss << "UserInput." << field << " must be finite; got " << value;
-            throw std::invalid_argument(oss.str());
+            throw ::velox::errors::InputError(VELOX_LOC(oss.str()));
         }
     };
 
@@ -45,7 +46,7 @@ void UserInput::validate(const UserInputLimits& limits) const
         if (value < min || value > max) {
             std::ostringstream oss;
             oss << "UserInput." << field << " of " << value << " outside [" << min << ", " << max << "]";
-            throw std::invalid_argument(oss.str());
+            throw ::velox::errors::InputError(VELOX_LOC(oss.str()));
         }
     };
 
@@ -53,14 +54,14 @@ void UserInput::validate(const UserInputLimits& limits) const
     if (timestamp < 0.0) {
         std::ostringstream oss;
         oss << "UserInput.timestamp must be non-negative; got " << timestamp;
-        throw std::invalid_argument(oss.str());
+        throw ::velox::errors::InputError(VELOX_LOC(oss.str()));
     }
 
     require_finite(dt, "dt");
     if (dt <= 0.0) {
         std::ostringstream oss;
         oss << "UserInput.dt must be positive; got " << dt;
-        throw std::invalid_argument(oss.str());
+        throw ::velox::errors::InputError(VELOX_LOC(oss.str()));
     }
 
     require_finite(longitudinal.throttle, "longitudinal.throttle");
@@ -85,7 +86,7 @@ void UserInput::validate(const UserInputLimits& limits) const
         case GearSelection::Drive:
             break;
         default:
-            throw std::invalid_argument("UserInput.gear set to unknown value");
+            throw ::velox::errors::InputError(VELOX_LOC("UserInput.gear set to unknown value"));
     }
 }
 
@@ -208,7 +209,7 @@ ModelInterface build_model_interface(ModelType model)
     }
 
     if (!iface.valid()) {
-        throw std::runtime_error("Unsupported model type for simulator");
+        throw ::velox::errors::SimulationError(VELOX_MODEL("Unsupported model type for simulator", model));
     }
     return iface;
 }
@@ -293,82 +294,98 @@ SimulationDaemon::SimulationDaemon(const InitParams& init)
     : init_(init)
     , configs_(init.config_root, init.parameter_root)
     , model_(init.model)
+    , timing_info_(configs_.load_model_timing(init.model))
+    , log_sink_(init.log_sink)
 {
     load_vehicle_parameters(init.vehicle_id);
 
     // Initial wiring occurs during construction
-    const auto timing = configs_.load_model_timing(model_);
     const auto default_state = build_model_interface(model_).init_fn({}, params_);
     ResetParams reset_params{};
     reset_params.initial_state = default_state;
-    reset_params.dt            = timing.nominal_dt;
+    reset_params.dt            = timing_info_.nominal_dt;
     reset(reset_params);
 }
 
 void SimulationDaemon::reset(const ResetParams& params)
 {
-    if (params.model) {
-        model_ = *params.model;
+    try {
+        if (params.model) {
+            model_ = *params.model;
+        }
+        if (params.vehicle_id) {
+            init_.vehicle_id = *params.vehicle_id;
+            load_vehicle_parameters(*params.vehicle_id);
+        }
+
+        timing_info_    = configs_.load_model_timing(model_);
+        model_interface_ = build_model_interface(model_);
+
+        rebuild_controllers();
+        rebuild_safety();
+
+        const double dt = sanitize_dt(params.dt.value_or(timing_info_.nominal_dt));
+        const auto   initial = seed_state(model_interface_, params_, params.initial_state);
+
+        rebuild_simulator(dt, initial);
+
+        const double initial_angle = (initial.size() > 2) ? initial[2] : 0.0;
+        if (steering_wheel_) {
+            steering_wheel_->reset(initial_angle);
+        }
+        if (final_steer_) {
+            final_steer_->reset(initial_angle);
+        }
+        if (accel_controller_) {
+            accel_controller_->reset();
+        }
+
+        cumulative_distance_m_ = 0.0;
+        cumulative_energy_j_   = 0.0;
+        last_telemetry_        = {};
+    } catch (const ::velox::errors::VeloxError&) {
+        throw;
+    } catch (const std::exception& ex) {
+        rethrow_with_context("reset", ex);
     }
-    if (params.vehicle_id) {
-        init_.vehicle_id = *params.vehicle_id;
-        load_vehicle_parameters(*params.vehicle_id);
-    }
-
-    model_interface_ = build_model_interface(model_);
-
-    rebuild_controllers();
-    rebuild_safety();
-
-    const auto timing = configs_.load_model_timing(model_);
-    const double dt = params.dt.value_or(timing.nominal_dt);
-    const auto initial = seed_state(model_interface_, params_, params.initial_state);
-
-    rebuild_simulator(dt, initial);
-
-    const double initial_angle = (initial.size() > 2) ? initial[2] : 0.0;
-    if (steering_wheel_) {
-        steering_wheel_->reset(initial_angle);
-    }
-    if (final_steer_) {
-        final_steer_->reset(initial_angle);
-    }
-    if (accel_controller_) {
-        accel_controller_->reset();
-    }
-
-    cumulative_distance_m_ = 0.0;
-    cumulative_energy_j_   = 0.0;
-    last_telemetry_        = {};
 }
 
 telemetry::SimulationTelemetry SimulationDaemon::step(const UserInput& input)
 {
-    if (!simulator_ || !accel_controller_ || !steering_wheel_ || !final_steer_ || !safety_) {
-        throw std::runtime_error("SimulationDaemon not initialized");
+    try {
+        if (!simulator_ || !accel_controller_ || !steering_wheel_ || !final_steer_ || !safety_) {
+            throw ::velox::errors::SimulationError(VELOX_MODEL("SimulationDaemon not initialized", model_));
+        }
+
+        auto sanitized_input = input.clamped(kDefaultUserInputLimits);
+        log_clamped_input(input, sanitized_input);
+        sanitized_input.dt = sanitize_dt(sanitized_input.dt);
+
+        const double dt            = sanitized_input.dt;
+        const double start_speed   = simulator_->speed();
+        const double current_angle = (simulator_->state().size() > 2) ? simulator_->state()[2] : 0.0;
+        const auto steering_output = steering_wheel_->update(sanitized_input.steering_nudge, dt);
+        const auto final_output = final_steer_->update(steering_output.target_angle, current_angle, dt);
+
+        const double speed = simulator_->speed();
+        const auto accel_output = accel_controller_->step(sanitized_input.longitudinal, speed, dt);
+
+        std::vector<double> control{final_output.rate, accel_output.acceleration};
+        simulator_->set_dt(dt);
+        simulator_->step(control);
+
+        const double end_speed = simulator_->speed();
+        cumulative_distance_m_ += 0.5 * (std::abs(start_speed) + std::abs(end_speed)) * dt;
+        cumulative_energy_j_   += accel_output.battery_power * dt;
+
+        last_telemetry_ = compute_telemetry(accel_output, steering_output, final_output);
+        log_controller_limits(accel_output, final_output);
+        return last_telemetry_;
+    } catch (const ::velox::errors::VeloxError&) {
+        throw;
+    } catch (const std::exception& ex) {
+        rethrow_with_context("step", ex);
     }
-
-    const auto sanitized_input = input.clamped(kDefaultUserInputLimits);
-    const double dt            = sanitized_input.dt;
-
-    const double start_speed   = simulator_->speed();
-    const double current_angle = (simulator_->state().size() > 2) ? simulator_->state()[2] : 0.0;
-    const auto steering_output = steering_wheel_->update(sanitized_input.steering_nudge, dt);
-    const auto final_output = final_steer_->update(steering_output.target_angle, current_angle, dt);
-
-    const double speed = simulator_->speed();
-    const auto accel_output = accel_controller_->step(sanitized_input.longitudinal, speed, dt);
-
-    std::vector<double> control{final_output.rate, accel_output.acceleration};
-    simulator_->set_dt(dt);
-    simulator_->step(control);
-
-    const double end_speed = simulator_->speed();
-    cumulative_distance_m_ += 0.5 * (std::abs(start_speed) + std::abs(end_speed)) * dt;
-    cumulative_energy_j_   += accel_output.battery_power * dt;
-
-    last_telemetry_ = compute_telemetry(accel_output, steering_output, final_output);
-    return last_telemetry_;
 }
 
 std::vector<telemetry::SimulationTelemetry> SimulationDaemon::step(const std::vector<UserInput>& batch_inputs)
@@ -427,7 +444,7 @@ void SimulationDaemon::rebuild_safety()
 void SimulationDaemon::rebuild_simulator(double dt, const std::vector<double>& initial_state)
 {
     if (!safety_) {
-        throw std::runtime_error("Safety system not initialized");
+        throw ::velox::errors::SimulationError(VELOX_MODEL("Safety system not initialized", model_));
     }
     simulator_ = std::make_unique<VehicleSimulator>(model_interface_, params_, dt, *safety_);
     simulator_->reset(initial_state);
@@ -453,6 +470,105 @@ telemetry::SimulationTelemetry SimulationDaemon::compute_telemetry(
                                                    measured_speed,
                                                    cumulative_distance_m_,
                                                    cumulative_energy_j_);
+}
+
+void SimulationDaemon::log_warning(const std::string& message) const
+{
+    logging::log(log_sink_.get(), logging::Level::Warning, message);
+}
+
+void SimulationDaemon::log_info(const std::string& message) const
+{
+    logging::log(log_sink_.get(), logging::Level::Info, message);
+}
+
+double SimulationDaemon::sanitize_dt(double requested_dt) const
+{
+    const double clamped = std::clamp(requested_dt,
+                                      static_cast<double>(kMinStableDt),
+                                      static_cast<double>(timing_info_.max_dt));
+    if (std::abs(clamped - requested_dt) > 1e-9) {
+        std::ostringstream oss;
+        oss << "Requested dt " << requested_dt << "s clamped to " << clamped
+            << "s for " << model_display_name(model_) << " stability bounds ["
+            << kMinStableDt << ", " << timing_info_.max_dt << "]";
+        log_warning(oss.str());
+    }
+    return clamped;
+}
+
+void SimulationDaemon::log_clamped_input(const UserInput& original, const UserInput& clamped) const
+{
+    const auto changed = [](double a, double b) { return std::abs(a - b) > 1e-9; };
+    if (changed(original.longitudinal.throttle, clamped.longitudinal.throttle)) {
+        std::ostringstream oss;
+        oss << "Throttle request clamped from " << original.longitudinal.throttle << " to "
+            << clamped.longitudinal.throttle << " within [" << kDefaultUserInputLimits.min_throttle
+            << ", " << kDefaultUserInputLimits.max_throttle << "]";
+        log_warning(oss.str());
+    }
+    if (changed(original.longitudinal.brake, clamped.longitudinal.brake)) {
+        std::ostringstream oss;
+        oss << "Brake request clamped from " << original.longitudinal.brake << " to "
+            << clamped.longitudinal.brake << " within [" << kDefaultUserInputLimits.min_brake << ", "
+            << kDefaultUserInputLimits.max_brake << "]";
+        log_warning(oss.str());
+    }
+    if (changed(original.steering_nudge, clamped.steering_nudge)) {
+        std::ostringstream oss;
+        oss << "Steering nudge clamped from " << original.steering_nudge << " to "
+            << clamped.steering_nudge << " within [" << kDefaultUserInputLimits.min_steering_nudge << ", "
+            << kDefaultUserInputLimits.max_steering_nudge << "]";
+        log_warning(oss.str());
+    }
+}
+
+void SimulationDaemon::log_controller_limits(const controllers::longitudinal::ControllerOutput& accel_output,
+                                             const controllers::FinalSteerController::Output& steer_output) const
+{
+    constexpr double kTol = 1e-6;
+    if (accel_controller_) {
+        const auto& cfg = accel_controller_->config();
+        if (accel_output.acceleration <= cfg.accel_min + kTol) {
+            std::ostringstream oss;
+            oss << "Acceleration saturated at lower bound " << cfg.accel_min << " m/s^2";
+            log_warning(oss.str());
+        } else if (accel_output.acceleration >= cfg.accel_max - kTol) {
+            std::ostringstream oss;
+            oss << "Acceleration saturated at upper bound " << cfg.accel_max << " m/s^2";
+            log_warning(oss.str());
+        }
+    }
+
+    if (final_steer_) {
+        const auto& cfg = final_steer_->config();
+        if (std::abs(steer_output.rate - cfg.max_rate) < kTol ||
+            std::abs(steer_output.rate + cfg.max_rate) < kTol) {
+            std::ostringstream oss;
+            oss << "Steering rate saturated at ±" << cfg.max_rate << " rad/s";
+            log_warning(oss.str());
+        }
+        if (steer_output.angle <= cfg.min_angle + kTol || steer_output.angle >= cfg.max_angle - kTol) {
+            std::ostringstream oss;
+            oss << "Steering angle limited within [" << cfg.min_angle << ", " << cfg.max_angle << "]";
+            log_warning(oss.str());
+        }
+    }
+}
+
+std::string SimulationDaemon::context_description(std::string_view action) const
+{
+    std::ostringstream oss;
+    oss << "SimulationDaemon " << action << " failed";
+    oss << " for model " << model_display_name(model_);
+    oss << " (vehicle_id=" << init_.vehicle_id << ")";
+    return oss.str();
+}
+
+[[noreturn]] void SimulationDaemon::rethrow_with_context(const char* action, const std::exception& ex) const
+{
+    throw ::velox::errors::SimulationError(
+        VELOX_MODEL(::velox::errors::append_context(ex.what(), context_description(action)), model_));
 }
 
 } // namespace velox::simulation

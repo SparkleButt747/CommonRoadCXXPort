@@ -52,6 +52,7 @@ public:
     void   reset(double angle = 0.0);
 
     const Output& last_output() const { return last_output_; }
+    const SteeringConfig::Wheel& config() const noexcept { return cfg_; }
 
 private:
     SteeringConfig::Wheel cfg_{};
@@ -79,6 +80,7 @@ public:
     void   reset(double current_angle = 0.0);
 
     const Output& last_output() const { return last_output_; }
+    const SteeringConfig::Final& config() const noexcept { return cfg_; }
 
 private:
     SteeringConfig::Final cfg_{};

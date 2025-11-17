@@ -4,6 +4,8 @@
 #include <cmath>
 #include <stdexcept>
 
+#include "common/errors.hpp"
+
 namespace velox::controllers {
 
 using velox::models::utils::SteeringParameters;
@@ -60,38 +62,38 @@ double combined_rate_max(const SteeringConfig::Final& cfg, const SteeringParamet
 void SteeringConfig::Wheel::validate() const
 {
     if (max_angle <= 0.0) {
-        throw std::invalid_argument("wheel.max_angle must be positive");
+        throw ::velox::errors::ConfigError(VELOX_LOC("wheel.max_angle must be positive"));
     }
     if (max_rate <= 0.0) {
-        throw std::invalid_argument("wheel.max_rate must be positive");
+        throw ::velox::errors::ConfigError(VELOX_LOC("wheel.max_rate must be positive"));
     }
     if (nudge_angle <= 0.0) {
-        throw std::invalid_argument("wheel.nudge_angle must be positive");
+        throw ::velox::errors::ConfigError(VELOX_LOC("wheel.nudge_angle must be positive"));
     }
     if (centering_stiffness <= 0.0) {
-        throw std::invalid_argument("wheel.centering_stiffness must be positive");
+        throw ::velox::errors::ConfigError(VELOX_LOC("wheel.centering_stiffness must be positive"));
     }
     if (centering_deadband < 0.0) {
-        throw std::invalid_argument("wheel.centering_deadband cannot be negative");
+        throw ::velox::errors::ConfigError(VELOX_LOC("wheel.centering_deadband cannot be negative"));
     }
     if (centering_deadband >= max_angle) {
-        throw std::invalid_argument("wheel.centering_deadband must be smaller than wheel.max_angle");
+        throw ::velox::errors::ConfigError(VELOX_LOC("wheel.centering_deadband must be smaller than wheel.max_angle"));
     }
 }
 
 void SteeringConfig::Final::validate() const
 {
     if (max_angle <= min_angle) {
-        throw std::invalid_argument("final.max_angle must be greater than final.min_angle");
+        throw ::velox::errors::ConfigError(VELOX_LOC("final.max_angle must be greater than final.min_angle"));
     }
     if (max_rate <= 0.0) {
-        throw std::invalid_argument("final.max_rate must be positive");
+        throw ::velox::errors::ConfigError(VELOX_LOC("final.max_rate must be positive"));
     }
     if (actuator_time_constant <= 0.0) {
-        throw std::invalid_argument("final.actuator_time_constant must be positive");
+        throw ::velox::errors::ConfigError(VELOX_LOC("final.actuator_time_constant must be positive"));
     }
     if (smoothing_time_constant < 0.0) {
-        throw std::invalid_argument("final.smoothing_time_constant cannot be negative");
+        throw ::velox::errors::ConfigError(VELOX_LOC("final.smoothing_time_constant cannot be negative"));
     }
 }
 
@@ -100,7 +102,7 @@ void SteeringConfig::validate() const
     wheel.validate();
     final.validate();
     if (final.min_angle > -wheel.max_angle || final.max_angle < wheel.max_angle) {
-        throw std::invalid_argument("final angle range must encompass wheel range");
+        throw ::velox::errors::ConfigError(VELOX_LOC("final angle range must encompass wheel range"));
     }
 }
 
@@ -141,7 +143,7 @@ void SteeringWheel::reset(double angle)
 SteeringWheel::Output SteeringWheel::update(double nudge, double dt)
 {
     if (dt <= 0.0) {
-        throw std::invalid_argument("dt must be positive");
+        throw ::velox::errors::InputError(VELOX_LOC("dt must be positive"));
     }
 
     const double prev_angle = angle_;
@@ -204,7 +206,7 @@ FinalSteerController::Output FinalSteerController::update(double desired_angle,
                                                           double dt)
 {
     if (dt <= 0.0) {
-        throw std::invalid_argument("dt must be positive");
+        throw ::velox::errors::InputError(VELOX_LOC("dt must be positive"));
     }
 
     const double min_angle = combined_min_angle(cfg_, limits_);

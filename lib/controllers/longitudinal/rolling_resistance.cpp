@@ -4,15 +4,16 @@
 #include <cmath>
 #include <stdexcept>
 
+#include "common/errors.hpp"
 namespace velox::controllers::longitudinal {
 
 void RollingResistanceConfig::validate() const
 {
     if (!std::isfinite(c_rr)) {
-        throw std::invalid_argument("rolling_resistance.c_rr must be finite");
+        throw ::velox::errors::ConfigError(VELOX_LOC("rolling_resistance.c_rr must be finite"));
     }
     if (c_rr < 0.0) {
-        throw std::invalid_argument("rolling_resistance.c_rr cannot be negative");
+        throw ::velox::errors::ConfigError(VELOX_LOC("rolling_resistance.c_rr cannot be negative"));
     }
 }
 
@@ -22,7 +23,7 @@ RollingResistance::RollingResistance(RollingResistanceConfig config, double grav
 {
     config_.validate();
     if (!std::isfinite(gravity_) || gravity_ <= 0.0) {
-        throw std::invalid_argument("gravity must be positive and finite");
+        throw ::velox::errors::ConfigError(VELOX_LOC("gravity must be positive and finite"));
     }
 }
 

@@ -1,9 +1,12 @@
 #pragma once
 
 #include <filesystem>
+#include <memory>
 #include <optional>
+#include <string_view>
 #include <vector>
 
+#include "common/logging.hpp"
 #include "controllers/longitudinal/final_accel_controller.hpp"
 #include "controllers/steering_controller.hpp"
 #include "io/config_manager.hpp"
@@ -63,11 +66,14 @@ public:
         int                       vehicle_id{1};
         std::filesystem::path     config_root{};
         std::filesystem::path     parameter_root{};
+        logging::LogSinkPtr       log_sink{};
     };
 
     explicit SimulationDaemon(const InitParams& init);
 
     void reset(const ResetParams& params);
+
+    void set_log_sink(logging::LogSinkPtr sink) { log_sink_ = std::move(sink); }
 
     telemetry::SimulationTelemetry step(const UserInput& input);
     std::vector<telemetry::SimulationTelemetry> step(const std::vector<UserInput>& batch_inputs);
@@ -95,6 +101,7 @@ private:
     InitParams              init_{};
     io::ConfigManager       configs_{};
     ModelType               model_{};
+    ModelTimingInfo         timing_info_{};
 
     models::VehicleParameters                              params_{};
     ModelInterface                                          model_interface_{};
@@ -104,6 +111,8 @@ private:
     std::optional<controllers::SteeringWheel>             steering_wheel_{};
     std::optional<controllers::FinalSteerController>       final_steer_{};
     std::optional<controllers::longitudinal::FinalAccelController> accel_controller_{};
+
+    logging::LogSinkPtr log_sink_{};
 
     double cumulative_distance_m_{0.0};
     double cumulative_energy_j_{0.0};
@@ -118,6 +127,14 @@ private:
         const controllers::longitudinal::ControllerOutput& accel_output,
         const controllers::SteeringWheel::Output& steering_input,
         const controllers::FinalSteerController::Output&    steering_output) const;
+    void log_warning(const std::string& message) const;
+    void log_info(const std::string& message) const;
+    double sanitize_dt(double requested_dt) const;
+    void log_clamped_input(const UserInput& original, const UserInput& clamped) const;
+    void log_controller_limits(const controllers::longitudinal::ControllerOutput& accel_output,
+                               const controllers::FinalSteerController::Output& steer_output) const;
+    std::string context_description(std::string_view action) const;
+    [[noreturn]] void rethrow_with_context(const char* action, const std::exception& ex) const;
 };
 
 } // namespace velox::simulation

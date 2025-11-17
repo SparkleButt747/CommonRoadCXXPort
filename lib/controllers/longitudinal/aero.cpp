@@ -3,18 +3,19 @@
 #include <cmath>
 #include <stdexcept>
 
+#include "common/errors.hpp"
 namespace velox::controllers::longitudinal {
 
 void AeroConfig::validate() const
 {
     if (!std::isfinite(drag_coefficient)) {
-        throw std::invalid_argument("aero.drag_coefficient must be finite");
+        throw ::velox::errors::ConfigError(VELOX_LOC("aero.drag_coefficient must be finite"));
     }
     if (!std::isfinite(downforce_coefficient)) {
-        throw std::invalid_argument("aero.downforce_coefficient must be finite");
+        throw ::velox::errors::ConfigError(VELOX_LOC("aero.downforce_coefficient must be finite"));
     }
     if (drag_coefficient < 0.0) {
-        throw std::invalid_argument("aero.drag_coefficient cannot be negative");
+        throw ::velox::errors::ConfigError(VELOX_LOC("aero.drag_coefficient cannot be negative"));
     }
 }
 

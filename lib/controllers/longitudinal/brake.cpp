@@ -4,18 +4,19 @@
 #include <cmath>
 #include <stdexcept>
 
+#include "common/errors.hpp"
 namespace velox::controllers::longitudinal {
 
 void BrakeConfig::validate() const
 {
     if (!std::isfinite(max_force) || max_force < 0.0) {
-        throw std::invalid_argument("brake.max_force must be non-negative and finite");
+        throw ::velox::errors::ConfigError(VELOX_LOC("brake.max_force must be non-negative and finite"));
     }
     if (!std::isfinite(max_regen_force) || max_regen_force < 0.0) {
-        throw std::invalid_argument("brake.max_regen_force must be non-negative and finite");
+        throw ::velox::errors::ConfigError(VELOX_LOC("brake.max_regen_force must be non-negative and finite"));
     }
     if (!std::isfinite(min_regen_speed) || min_regen_speed < 0.0) {
-        throw std::invalid_argument("brake.min_regen_speed must be non-negative and finite");
+        throw ::velox::errors::ConfigError(VELOX_LOC("brake.min_regen_speed must be non-negative and finite"));
     }
 }
 
