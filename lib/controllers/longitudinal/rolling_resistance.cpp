@@ -6,6 +6,16 @@
 
 namespace velox::controllers::longitudinal {
 
+void RollingResistanceConfig::validate() const
+{
+    if (!std::isfinite(c_rr)) {
+        throw std::invalid_argument("rolling_resistance.c_rr must be finite");
+    }
+    if (c_rr < 0.0) {
+        throw std::invalid_argument("rolling_resistance.c_rr cannot be negative");
+    }
+}
+
 RollingResistance::RollingResistance(RollingResistanceConfig config, double gravity)
     : config_(config)
     , gravity_(gravity)

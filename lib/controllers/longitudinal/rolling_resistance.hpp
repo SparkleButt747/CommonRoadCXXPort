@@ -1,23 +1,11 @@
 #pragma once
 
-#include <algorithm>
-#include <cmath>
-#include <stdexcept>
-
 namespace velox::controllers::longitudinal {
 
 struct RollingResistanceConfig {
     double c_rr = 0.0;
 
-    void validate() const
-    {
-        if (!std::isfinite(c_rr)) {
-            throw std::invalid_argument("rolling_resistance.c_rr must be finite");
-        }
-        if (c_rr < 0.0) {
-            throw std::invalid_argument("rolling_resistance.c_rr cannot be negative");
-        }
-    }
+    void validate() const;
 };
 
 class RollingResistance {

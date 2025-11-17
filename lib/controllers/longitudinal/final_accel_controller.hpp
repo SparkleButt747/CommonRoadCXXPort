@@ -1,9 +1,5 @@
 #pragma once
 
-#include <algorithm>
-#include <cmath>
-#include <stdexcept>
-
 #include "controllers/longitudinal/aero.hpp"
 #include "controllers/longitudinal/brake.hpp"
 #include "controllers/longitudinal/powertrain.hpp"
@@ -18,24 +14,7 @@ struct FinalAccelControllerConfig {
     double accel_max          = 4.0;
     double stop_speed_epsilon = 0.05;
 
-    void validate() const
-    {
-        if (!std::isfinite(tau_throttle) || tau_throttle <= 0.0) {
-            throw std::invalid_argument("final_accel_controller.tau_throttle must be positive");
-        }
-        if (!std::isfinite(tau_brake) || tau_brake <= 0.0) {
-            throw std::invalid_argument("final_accel_controller.tau_brake must be positive");
-        }
-        if (!std::isfinite(accel_min) || !std::isfinite(accel_max)) {
-            throw std::invalid_argument("final_accel_controller.accel bounds must be finite");
-        }
-        if (accel_max < accel_min) {
-            throw std::invalid_argument("final_accel_controller.accel_max must be >= accel_min");
-        }
-        if (!std::isfinite(stop_speed_epsilon) || stop_speed_epsilon < 0.0) {
-            throw std::invalid_argument("final_accel_controller.stop_speed_epsilon must be non-negative");
-        }
-    }
+    void validate() const;
 };
 
 struct DriverIntent {
