@@ -120,13 +120,42 @@ target_include_directories(velox
 
 target_compile_definitions(velox
     PUBLIC
-        VELOX_PARAM_ROOT="$<BUILD_INTERFACE:${VELOX_PARAM_DIR}>$<INSTALL_INTERFACE:${CMAKE_INSTALL_FULL_DATAROOTDIR}/velox/parameters>"
+        VELOX_PARAM_ROOT="${VELOX_PARAM_DIR}"
 )
 
 target_link_libraries(velox
     PUBLIC
         yaml-cpp::yaml-cpp
 )
+
+# ------------------------------------------------------------
+# Tests
+# ------------------------------------------------------------
+option(BUILD_COMMONROAD_TESTS "Build unit and integration tests" OFF)
+
+if (BUILD_COMMONROAD_TESTS)
+    enable_testing()
+
+    set(TEST_SOURCES
+        tests/test_config_manager.cpp
+        tests/test_longitudinal.cpp
+        tests/test_low_speed_safety.cpp
+        tests/test_telemetry_population.cpp
+        tests/test_simulation_daemon.cpp
+    )
+
+    foreach(source ${TEST_SOURCES})
+        get_filename_component(test_name ${source} NAME_WE)
+        add_executable(${test_name} ${source})
+        target_link_libraries(${test_name}
+            PRIVATE
+                velox
+        )
+        add_test(NAME ${test_name}
+            COMMAND ${test_name}
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+    endforeach()
+endif()
 
 install(TARGETS velox
     EXPORT veloxTargets

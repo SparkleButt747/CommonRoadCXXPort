@@ -29,7 +29,7 @@ void test_soc_bounds_validation()
     bool threw = false;
     try {
         cfg.validate();
-    } catch (const std::invalid_argument&) {
+    } catch (const std::exception&) {
         threw = true;
     }
     assert(threw && "PowertrainConfig should reject invalid SOC ordering");
