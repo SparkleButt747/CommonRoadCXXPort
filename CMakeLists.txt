@@ -179,6 +179,23 @@ else()
 endif()
 
 # ------------------------------------------------------------
+# Examples
+# ------------------------------------------------------------
+
+option(BUILD_VELOX_EXAMPLES "Build Velox example executables" ON)
+
+if (BUILD_VELOX_EXAMPLES)
+    add_executable(basic_sim_daemon
+        examples/basic_sim_daemon.cpp
+    )
+
+    target_link_libraries(basic_sim_daemon
+        PRIVATE
+            velox
+    )
+endif()
+
+# ------------------------------------------------------------
 # Tests
 # ------------------------------------------------------------
 
