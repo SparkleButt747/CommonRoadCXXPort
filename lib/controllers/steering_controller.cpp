@@ -2,14 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
-#include <filesystem>
 #include <stdexcept>
-
-#include <yaml-cpp/yaml.h>
-
-#ifndef VELOX_PARAM_ROOT
-#    error "VELOX_PARAM_ROOT must be defined"
-#endif
 
 namespace velox::controllers {
 
@@ -26,43 +19,6 @@ double clamp(double value, double low, double high)
 double clamp01(double value)
 {
     return clamp(value, 0.0, 1.0);
-}
-
-double fetch_required_double(const YAML::Node& node, const char* key)
-{
-    auto value = node[key];
-    if (!value) {
-        throw std::runtime_error(std::string{"steering config missing key: "} + key);
-    }
-    return value.as<double>();
-}
-
-SteeringConfig parse_config(const YAML::Node& root)
-{
-    SteeringConfig cfg{};
-
-    auto wheel = root["wheel"];
-    if (!wheel || !wheel.IsMap()) {
-        throw std::runtime_error("steering config missing 'wheel' section");
-    }
-    cfg.wheel.max_angle           = fetch_required_double(wheel, "max_angle");
-    cfg.wheel.max_rate            = fetch_required_double(wheel, "max_rate");
-    cfg.wheel.nudge_angle         = fetch_required_double(wheel, "nudge_angle");
-    cfg.wheel.centering_stiffness = fetch_required_double(wheel, "centering_stiffness");
-    cfg.wheel.centering_deadband  = fetch_required_double(wheel, "centering_deadband");
-
-    auto final = root["final"];
-    if (!final || !final.IsMap()) {
-        throw std::runtime_error("steering config missing 'final' section");
-    }
-    cfg.final.min_angle               = fetch_required_double(final, "min_angle");
-    cfg.final.max_angle               = fetch_required_double(final, "max_angle");
-    cfg.final.max_rate                = fetch_required_double(final, "max_rate");
-    cfg.final.actuator_time_constant  = fetch_required_double(final, "actuator_time_constant");
-    cfg.final.smoothing_time_constant = fetch_required_double(final, "smoothing_time_constant");
-
-    cfg.validate();
-    return cfg;
 }
 
 double combined_min_angle(const SteeringConfig::Final& cfg, const SteeringParameters& limits)
@@ -146,23 +102,6 @@ void SteeringConfig::validate() const
     if (final.min_angle > -wheel.max_angle || final.max_angle < wheel.max_angle) {
         throw std::invalid_argument("final angle range must encompass wheel range");
     }
-}
-
-SteeringConfig SteeringConfig::load_from_file(const std::string& path)
-{
-    YAML::Node root = YAML::LoadFile(path);
-    return parse_config(root);
-}
-
-SteeringConfig SteeringConfig::load_default()
-{
-    namespace fs = std::filesystem;
-    fs::path root = fs::path(VELOX_PARAM_ROOT).parent_path();
-    fs::path path = root / "config" / "steering.yaml";
-    if (!fs::exists(path)) {
-        throw std::runtime_error("steering config not found at: " + path.string());
-    }
-    return load_from_file(path.string());
 }
 
 SteeringWheel::SteeringWheel(const SteeringConfig::Wheel& cfg,

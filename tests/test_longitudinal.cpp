@@ -5,12 +5,13 @@
 #include <limits>
 #include <stdexcept>
 
-#include "controllers/longitudinal/config_loader.hpp"
+#include "io/config_manager.hpp"
 #include "controllers/longitudinal/final_accel_controller.hpp"
 #include "vehicle/parameters_vehicle2.hpp"
 
 namespace vm  = velox::models;
 namespace vml = velox::controllers::longitudinal;
+namespace vio = velox::io;
 
 void test_soc_bounds_validation()
 {
@@ -36,7 +37,8 @@ void test_soc_bounds_validation()
 
 void test_regen_fade_out()
 {
-    const auto brake_cfg = vml::load_default_brake_config();
+    vio::ConfigManager configs{};
+    const auto brake_cfg = configs.load_brake_config();
     vml::BrakeController brakes(brake_cfg);
 
     const double speed_above = brake_cfg.min_regen_speed + 0.5;
@@ -57,12 +59,13 @@ void test_regen_fade_out()
 
 void test_stop_and_go_continuity()
 {
+    vio::ConfigManager configs{};
     const auto params      = vm::parameters_vehicle2();
-    const auto power_cfg   = vml::load_default_powertrain_config();
-    const auto aero_cfg    = vml::load_default_aero_config();
-    const auto rolling_cfg = vml::load_default_rolling_resistance_config();
-    const auto brake_cfg   = vml::load_default_brake_config();
-    const auto ctrl_cfg    = vml::load_default_final_accel_controller_config();
+    const auto power_cfg   = configs.load_powertrain_config();
+    const auto aero_cfg    = configs.load_aero_config();
+    const auto rolling_cfg = configs.load_rolling_resistance_config();
+    const auto brake_cfg   = configs.load_brake_config();
+    const auto ctrl_cfg    = configs.load_final_accel_controller_config();
 
     vml::FinalAccelController controller(params.m,
                                          params.R_w,

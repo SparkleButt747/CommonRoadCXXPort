@@ -34,8 +34,6 @@ struct SteeringConfig {
 
     void validate() const;
 
-    static SteeringConfig load_from_file(const std::string& path);
-    static SteeringConfig load_default();
 };
 
 class SteeringWheel {

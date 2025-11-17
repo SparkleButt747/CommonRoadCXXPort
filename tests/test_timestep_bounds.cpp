@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-#include "io/low_speed_safety_loader.hpp"
+#include "io/config_manager.hpp"
 #include "simulation/model_timing.hpp"
 #include "simulation/vehicle_simulator.hpp"
 #include "vehicle/parameters_vehicle1.hpp"
@@ -16,6 +16,7 @@
 
 namespace vm   = velox::models;
 namespace vsim = velox::simulation;
+namespace vio  = velox::io;
 
 static vsim::ModelInterface build_std_interface()
 {
@@ -103,11 +104,12 @@ static void expect_finite_state(const std::vector<double>& state, const std::str
 
 static void test_std_dt_bound()
 {
-    const auto cfg    = vsim::load_default_low_speed_safety_config();
+    vio::ConfigManager configs{};
+    const auto cfg    = configs.load_low_speed_safety_config(vsim::ModelType::STD);
     auto params       = vm::parameters_vehicle1(VELOX_PARAM_ROOT);
     auto iface        = build_std_interface();
     auto safety       = make_std_safety(params, cfg);
-    const float dt    = vsim::model_timing(vsim::ModelType::STD).max_dt;
+    const float dt    = configs.load_model_timing(vsim::ModelType::STD).max_dt;
     vsim::VehicleSimulator simulator(std::move(iface), params, dt, std::move(safety));
     simulator.reset(std::vector<double>{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0});
     expect_finite_state(simulator.state(), "STD initial");
@@ -126,11 +128,12 @@ static void test_std_dt_bound()
 
 static void test_mb_dt_bound()
 {
-    const auto cfg    = vsim::load_default_low_speed_safety_config();
+    vio::ConfigManager configs{};
+    const auto cfg    = configs.load_low_speed_safety_config(vsim::ModelType::MB);
     auto params       = vm::parameters_vehicle1(VELOX_PARAM_ROOT);
     auto iface        = build_mb_interface();
     auto safety       = make_mb_safety(params, cfg);
-    const float dt    = vsim::model_timing(vsim::ModelType::MB).max_dt;
+    const float dt    = configs.load_model_timing(vsim::ModelType::MB).max_dt;
     vsim::VehicleSimulator simulator(std::move(iface), params, dt, std::move(safety));
     simulator.reset(std::vector<double>{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0});
     expect_finite_state(simulator.state(), "MB initial");

@@ -73,13 +73,12 @@ add_library(velox STATIC
     ${VELOX_LIB_DIR}/controllers/steering_controller.cpp
     ${VELOX_LIB_DIR}/controllers/longitudinal/aero.cpp
     ${VELOX_LIB_DIR}/controllers/longitudinal/brake.cpp
-    ${VELOX_LIB_DIR}/controllers/longitudinal/config_loader.cpp
     ${VELOX_LIB_DIR}/controllers/longitudinal/final_accel_controller.cpp
     ${VELOX_LIB_DIR}/controllers/longitudinal/powertrain.cpp
     ${VELOX_LIB_DIR}/controllers/longitudinal/rolling_resistance.cpp
 
     # IO
-    ${VELOX_LIB_DIR}/io/low_speed_safety_loader.cpp
+    ${VELOX_LIB_DIR}/io/config_manager.cpp
 
     # models and utilities
     ${VELOX_LIB_DIR}/models/tire_model.cpp
@@ -257,6 +256,15 @@ if(BUILD_VELOX_TESTS)
             velox
     )
     add_test(NAME test_timestep_bounds COMMAND test_timestep_bounds)
+
+    add_executable(test_config_manager
+        tests/test_config_manager.cpp
+    )
+    target_link_libraries(test_config_manager
+        PRIVATE
+            velox
+    )
+    add_test(NAME test_config_manager COMMAND test_config_manager)
 
     add_executable(scenario_simulator
         tests/scenario_simulator.cpp
