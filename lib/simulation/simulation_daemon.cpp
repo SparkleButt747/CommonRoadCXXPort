@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <sstream>
 #include <stdexcept>
 
 #include "models/vehicle_dynamics_ks_cog.hpp"
@@ -19,6 +20,74 @@
 #include "vehicle_parameters.hpp"
 
 namespace velox::simulation {
+
+UserInput UserInput::clamped(const UserInputLimits& limits) const
+{
+    validate(limits);
+    UserInput copy = *this;
+    copy.longitudinal.throttle = std::clamp(copy.longitudinal.throttle, limits.min_throttle, limits.max_throttle);
+    copy.longitudinal.brake    = std::clamp(copy.longitudinal.brake, limits.min_brake, limits.max_brake);
+    copy.steering_nudge        = std::clamp(copy.steering_nudge, limits.min_steering_nudge, limits.max_steering_nudge);
+    return copy;
+}
+
+void UserInput::validate(const UserInputLimits& limits) const
+{
+    const auto require_finite = [](double value, const char* field) {
+        if (!std::isfinite(value)) {
+            std::ostringstream oss;
+            oss << "UserInput." << field << " must be finite; got " << value;
+            throw std::invalid_argument(oss.str());
+        }
+    };
+
+    const auto require_in_range = [](double value, const char* field, double min, double max) {
+        if (value < min || value > max) {
+            std::ostringstream oss;
+            oss << "UserInput." << field << " of " << value << " outside [" << min << ", " << max << "]";
+            throw std::invalid_argument(oss.str());
+        }
+    };
+
+    require_finite(timestamp, "timestamp");
+    if (timestamp < 0.0) {
+        std::ostringstream oss;
+        oss << "UserInput.timestamp must be non-negative; got " << timestamp;
+        throw std::invalid_argument(oss.str());
+    }
+
+    require_finite(dt, "dt");
+    if (dt <= 0.0) {
+        std::ostringstream oss;
+        oss << "UserInput.dt must be positive; got " << dt;
+        throw std::invalid_argument(oss.str());
+    }
+
+    require_finite(longitudinal.throttle, "longitudinal.throttle");
+    require_in_range(longitudinal.throttle,
+                     "longitudinal.throttle",
+                     limits.min_throttle,
+                     limits.max_throttle);
+
+    require_finite(longitudinal.brake, "longitudinal.brake");
+    require_in_range(longitudinal.brake, "longitudinal.brake", limits.min_brake, limits.max_brake);
+
+    require_finite(steering_nudge, "steering_nudge");
+    require_in_range(steering_nudge,
+                     "steering_nudge",
+                     limits.min_steering_nudge,
+                     limits.max_steering_nudge);
+
+    switch (gear) {
+        case GearSelection::Park:
+        case GearSelection::Reverse:
+        case GearSelection::Neutral:
+        case GearSelection::Drive:
+            break;
+        default:
+            throw std::invalid_argument("UserInput.gear set to unknown value");
+    }
+}
 
 namespace {
 ModelInterface build_model_interface(ModelType model)
@@ -273,22 +342,22 @@ void SimulationDaemon::reset(const ResetParams& params)
     last_telemetry_        = {};
 }
 
-telemetry::SimulationTelemetry SimulationDaemon::step(const UserInput& input, double dt)
+telemetry::SimulationTelemetry SimulationDaemon::step(const UserInput& input)
 {
     if (!simulator_ || !accel_controller_ || !steering_wheel_ || !final_steer_ || !safety_) {
         throw std::runtime_error("SimulationDaemon not initialized");
     }
-    if (dt <= 0.0) {
-        throw std::invalid_argument("dt must be positive");
-    }
 
-    const double start_speed  = simulator_->speed();
+    const auto sanitized_input = input.clamped(kDefaultUserInputLimits);
+    const double dt            = sanitized_input.dt;
+
+    const double start_speed   = simulator_->speed();
     const double current_angle = (simulator_->state().size() > 2) ? simulator_->state()[2] : 0.0;
-    const auto steering_output = steering_wheel_->update(input.steering_nudge, dt);
+    const auto steering_output = steering_wheel_->update(sanitized_input.steering_nudge, dt);
     const auto final_output = final_steer_->update(steering_output.target_angle, current_angle, dt);
 
     const double speed = simulator_->speed();
-    const auto accel_output = accel_controller_->step(input.longitudinal, speed, dt);
+    const auto accel_output = accel_controller_->step(sanitized_input.longitudinal, speed, dt);
 
     std::vector<double> control{final_output.rate, accel_output.acceleration};
     simulator_->set_dt(dt);
@@ -302,12 +371,12 @@ telemetry::SimulationTelemetry SimulationDaemon::step(const UserInput& input, do
     return last_telemetry_;
 }
 
-std::vector<telemetry::SimulationTelemetry> SimulationDaemon::step(const std::vector<UserInput>& batch_inputs, double dt)
+std::vector<telemetry::SimulationTelemetry> SimulationDaemon::step(const std::vector<UserInput>& batch_inputs)
 {
     std::vector<telemetry::SimulationTelemetry> telemetry;
     telemetry.reserve(batch_inputs.size());
     for (const auto& input : batch_inputs) {
-        telemetry.push_back(step(input, dt));
+        telemetry.push_back(step(input));
     }
     return telemetry;
 }
