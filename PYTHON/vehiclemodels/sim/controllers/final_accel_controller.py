@@ -99,12 +99,19 @@ class FinalAccelController:
     def step(self, intent: DriverIntent, speed: float, dt: float) -> ControllerOutput:
         self._apply_actuator_dynamics(intent, dt)
 
+        below_stop_speed = abs(speed) <= self.cfg.stop_speed_epsilon
+        effective_speed = 0.0 if below_stop_speed else speed
+
         throttle = self.throttle * (1.0 - min(self.brake, 1.0))
-        available_regen = self.powertrain.available_regen_torque(speed) / self.wheel_radius
-        regen_request, hydraulic_force, _ = self.brakes.blend(self.brake, speed, available_regen)
+        available_regen = self.powertrain.available_regen_torque(effective_speed) / self.wheel_radius
+        regen_request, hydraulic_force, _ = self.brakes.blend(
+            self.brake, effective_speed, available_regen
+        )
 
         regen_torque_request = regen_request * self.wheel_radius
-        total_torque, drive_torque, regen_torque = self.powertrain.step(throttle, regen_torque_request, speed, dt)
+        total_torque, drive_torque, regen_torque = self.powertrain.step(
+            throttle, regen_torque_request, effective_speed, dt
+        )
 
         drive_force = drive_torque / self.wheel_radius
         regen_force = regen_torque / self.wheel_radius
@@ -114,16 +121,16 @@ class FinalAccelController:
         hydraulic_force = max(0.0, hydraulic_force + (regen_request - regen_force))
         brake_force = hydraulic_force + regen_force
 
-        drag_force = self.aero.drag_force(speed)
-        downforce = self.aero.downforce(speed)
+        drag_force = self.aero.drag_force(effective_speed)
+        downforce = self.aero.downforce(effective_speed)
         normal_force = self.mass * 9.81 + downforce
-        rolling_force = self.rolling.force(speed, normal_force)
+        rolling_force = self.rolling.force(effective_speed, normal_force)
 
         net_force = drive_force - brake_force + drag_force + rolling_force
         acceleration = net_force / self.mass
         acceleration = max(self.cfg.accel_min, min(self.cfg.accel_max, acceleration))
 
-        if abs(speed) <= self.cfg.stop_speed_epsilon and acceleration < 0.0:
+        if below_stop_speed and acceleration < 0.0:
             acceleration = 0.0
 
         LOGGER.debug(

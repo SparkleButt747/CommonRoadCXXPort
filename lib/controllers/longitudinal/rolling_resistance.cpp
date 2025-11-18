@@ -29,10 +29,10 @@ RollingResistance::RollingResistance(RollingResistanceConfig config, double grav
 
 double RollingResistance::force(double speed, double normal_force) const noexcept
 {
-    if (std::abs(speed) < 1e-3) {
+    const double base = config_.c_rr * std::max(0.0, normal_force);
+    if (speed == 0.0) {
         return 0.0;
     }
-    const double base = config_.c_rr * std::max(0.0, normal_force);
     return -std::copysign(base, speed);
 }
 
