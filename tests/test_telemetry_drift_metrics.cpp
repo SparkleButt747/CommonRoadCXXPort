@@ -48,8 +48,8 @@ int main()
     calm_state[2]  = 0.05; // steering angle
     calm_state[3]  = 8.0;  // longitudinal velocity
     calm_state[4]  = 0.0;  // yaw
-    calm_state[5]  = 0.15; // yaw rate
-    calm_state[10] = 0.2;  // lateral velocity
+    calm_state[5]  = 0.05; // yaw rate
+    calm_state[10] = 0.05; // lateral velocity
 
     wheel_output.target_angle = calm_state[2];
     steer_output.angle        = calm_state[2];
@@ -67,9 +67,9 @@ int main()
                                                  0.0);
 
     std::vector<double> drift_state = calm_state;
-    drift_state[2]  = 0.3;
-    drift_state[5]  = 0.65;
-    drift_state[10] = 3.0;
+    drift_state[2]  = 0.25;
+    drift_state[5]  = 2.0;
+    drift_state[10] = 4.0;
 
     wheel_output.target_angle = drift_state[2];
     steer_output.angle        = drift_state[2];

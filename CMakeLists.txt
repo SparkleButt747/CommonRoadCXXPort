@@ -189,7 +189,16 @@ if (BUILD_VELOX_EXAMPLES)
         examples/basic_sim_daemon.cpp
     )
 
+    add_executable(drift_mode_demo
+        examples/drift_mode_demo.cpp
+    )
+
     target_link_libraries(basic_sim_daemon
+        PRIVATE
+            velox
+    )
+
+    target_link_libraries(drift_mode_demo
         PRIVATE
             velox
     )
@@ -343,6 +352,12 @@ if(BUILD_VELOX_TESTS)
     add_test(NAME test_simulation_daemon
         COMMAND test_simulation_daemon
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+    if (BUILD_VELOX_EXAMPLES)
+        add_test(NAME drift_mode_demo
+            COMMAND $<TARGET_FILE:drift_mode_demo>
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+    endif()
 
     add_executable(scenario_simulator
         tests/scenario_simulator.cpp

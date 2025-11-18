@@ -1,5 +1,6 @@
 #include "models/vehiclemodels/init_std.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <vector>
 

@@ -124,6 +124,43 @@ void test_invalid_inputs()
     assert(drift_threw);
 }
 
+void test_drift_reset_behavior()
+{
+    vsim::SimulationDaemon::InitParams init{};
+    init.model      = vsim::ModelType::STD;
+    init.vehicle_id = 1;
+
+    vsim::SimulationDaemon daemon(init);
+
+    daemon.set_drift_enabled(false);
+    assert(!daemon.drift_enabled());
+    assert(daemon.simulator());
+    assert(!daemon.simulator()->safety().drift_enabled());
+
+    vsim::UserInput input{};
+    input.timestamp             = 0.0;
+    input.dt                    = 0.05;
+    input.longitudinal.throttle = 0.6;
+    input.steering_nudge        = 0.8;
+
+    daemon.step(input);
+    assert(daemon.accel_controller());
+    assert(daemon.accel_controller()->throttle() > 0.0);
+    assert(std::abs(daemon.steering_wheel()->last_output().angle) > 0.0);
+
+    vsim::ResetParams reset{};
+    reset.dt = 0.1;
+    daemon.reset(reset);
+
+    assert(daemon.drift_enabled());
+    assert(daemon.simulator());
+    assert(daemon.simulator()->safety().drift_enabled());
+    assert(daemon.accel_controller());
+    assert(daemon.accel_controller()->throttle() == 0.0);
+    assert(std::abs(daemon.steering_wheel()->last_output().angle) == 0.0);
+    assert(std::abs(daemon.steering_controller()->last_output().angle) == 0.0);
+}
+
 void compare_row(const ReferenceRow& ref, const vt::SimulationTelemetry& telem)
 {
     auto close = [](double a, double b, double tol = 1e-6) { return std::abs(a - b) <= tol; };
@@ -148,6 +185,7 @@ void compare_row(const ReferenceRow& ref, const vt::SimulationTelemetry& telem)
 int main()
 {
     test_invalid_inputs();
+    test_drift_reset_behavior();
 
     const auto reference = load_reference("tests/output/zero_input_reference.csv");
     if (reference.empty()) {
