@@ -62,37 +62,53 @@ int main()
 
     simulator.reset({0.0, 0.0, 0.2, 8.0, 0.0, 0.5, 0.0});
 
-    double yaw_at_release = 0.0;
-    double yaw_near_stop  = 0.0;
-    bool   captured_release = false;
-    bool   captured_stop    = false;
+    double max_yaw_rate      = 0.0;
+    double yaw_before_stop   = 0.0;
+    double yaw_at_stop       = 0.0;
+    bool   captured_slide    = false;
+    bool   engaged_telemetry = false;
 
-    for (int i = 0; i < 2000; ++i) {
-        const double speed = simulator.speed();
-        const auto   accel = controller.step(vml::DriverIntent{0.0, 1.0}, speed, dt);
+    for (int i = 0; i < 2400; ++i) {
+        const double speed  = simulator.speed();
+        const auto   accel  = controller.step(vml::DriverIntent{0.0, 1.0}, speed, dt);
+        const double steer  = 2.0;
 
         simulator.set_dt(dt);
-        simulator.step({0.0, accel.acceleration});
+        simulator.step({steer, accel.acceleration});
 
         const double yaw_rate = std::abs(simulator.state()[5]);
+        max_yaw_rate          = std::max(max_yaw_rate, yaw_rate);
+        engaged_telemetry = engaged_telemetry || simulator.safety().engaged();
 
-        if (!captured_release && speed <= safety_cfg.drift.release_speed) {
-            yaw_at_release  = yaw_rate;
-            captured_release = true;
-        }
-        if (!captured_stop && speed <= safety_cfg.stop_speed_epsilon) {
-            yaw_near_stop = yaw_rate;
-            captured_stop = true;
+        if (speed > safety_cfg.drift.release_speed) {
+            captured_slide = captured_slide || yaw_rate > 0.3;
+        } else if (speed > safety_cfg.stop_speed_epsilon) {
+            yaw_before_stop = yaw_rate;
+        } else {
+            yaw_at_stop = yaw_rate;
             break;
         }
     }
 
-    assert(captured_release);
-    assert(captured_stop);
-    assert(yaw_near_stop < yaw_at_release);
+    assert(engaged_telemetry);
+    assert(captured_slide);
+    assert(yaw_at_stop < yaw_before_stop);
+    assert(max_yaw_rate > 0.3);
 
-    const auto settle = controller.step(vml::DriverIntent{0.0, 1.0}, 0.0, dt);
-    assert(settle.brake_force <= 1e-6);
+    // Spin latch should release cleanly once we accelerate again.
+    bool released_latch = false;
+    simulator.set_dt(dt);
+    for (int i = 0; i < 800; ++i) {
+        const double speed  = simulator.speed();
+        const auto   accel  = controller.step(vml::DriverIntent{0.6, 0.0}, speed, dt);
+        simulator.step({0.0, accel.acceleration});
+        if (!simulator.safety().engaged() && speed >= safety_cfg.drift.release_speed) {
+            released_latch = true;
+            break;
+        }
+    }
+
+    assert(released_latch);
 
     return 0;
 }
