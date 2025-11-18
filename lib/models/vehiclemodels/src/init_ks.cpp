@@ -1,26 +1,20 @@
 #include "models/vehiclemodels/init_ks.hpp"
 
+#include <algorithm>
+
 namespace velox::models {
 
 std::vector<double> init_ks(const std::vector<double>& init_state)
 {
-    // obtain initial states from vector
-    const double sx0    = init_state[0];
-    const double sy0    = init_state[1];
-    const double delta0 = init_state[2];
-    const double vel0   = init_state[3];
-    const double Psi0   = init_state[4];
+    // Always return a well-defined 5-state vector for the kinematic models.
+    // If the caller provides fewer entries (or none), pad with zeros; if more,
+    // truncate to the expected length to avoid out-of-bounds access.
+    constexpr std::size_t kStateSize = 5;
+    std::vector<double>   state(kStateSize, 0.0);
+    const auto            copy = std::min(init_state.size(), state.size());
+    std::copy_n(init_state.begin(), copy, state.begin());
 
-    // sprung mass states
-    std::vector<double> x0;
-    x0.reserve(5);
-    x0.push_back(sx0);    // x-position in a global coordinate system
-    x0.push_back(sy0);    // y-position in a global coordinate system
-    x0.push_back(delta0); // steering angle of front wheels
-    x0.push_back(vel0);   // velocity
-    x0.push_back(Psi0);   // yaw angle
-
-    return x0;
+    return state;
 }
 
 }  // namespace velox::models

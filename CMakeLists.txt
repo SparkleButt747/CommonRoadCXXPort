@@ -279,6 +279,24 @@ if(BUILD_VELOX_TESTS)
     )
     add_test(NAME test_timestep_bounds COMMAND test_timestep_bounds)
 
+    add_executable(test_init_ks_kst
+        tests/test_init_ks_kst.cpp
+    )
+    target_link_libraries(test_init_ks_kst
+        PRIVATE
+            velox
+    )
+    add_test(NAME test_init_ks_kst COMMAND test_init_ks_kst)
+
+    add_executable(test_init_mb
+        tests/test_init_mb.cpp
+    )
+    target_link_libraries(test_init_mb
+        PRIVATE
+            velox
+    )
+    add_test(NAME test_init_mb COMMAND test_init_mb)
+
     add_executable(test_init_std
         tests/test_init_std.cpp
     )
