@@ -31,6 +31,14 @@ struct AccelerationTelemetry {
     double lateral      = 0.0;
 };
 
+struct TractionTelemetry {
+    double slip_angle              = 0.0;
+    double front_slip_angle        = 0.0;
+    double rear_slip_angle         = 0.0;
+    double lateral_force_saturation = 0.0;
+    bool   drift_mode              = false;
+};
+
 struct WheelTelemetry {
     double speed               = 0.0;
     double slip_ratio          = 0.0;
@@ -84,6 +92,7 @@ struct SimulationTelemetry {
     PoseTelemetry         pose{};
     VelocityTelemetry     velocity{};
     AccelerationTelemetry acceleration{};
+    TractionTelemetry     traction{};
     SteeringTelemetry     steering{};
     ControllerTelemetry   controller{};
     PowertrainTelemetry   powertrain{};

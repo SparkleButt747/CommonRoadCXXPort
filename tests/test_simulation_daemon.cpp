@@ -96,6 +96,32 @@ void test_invalid_inputs()
         }
         assert(bad_dt_threw);
     }
+
+    vsim::UserInput bad_steer{};
+    bad_steer.dt                    = 0.1;
+    bad_steer.timestamp             = 0.0;
+    bad_steer.steering_nudge        = 2.0;
+    bad_steer.longitudinal.throttle = 0.1;
+    bool steer_threw                = false;
+    try {
+        bad_steer.validate();
+    } catch (const ::velox::errors::InputError& ex) {
+        steer_threw = std::string{ex.what()}.find("steering_nudge") != std::string::npos;
+    }
+    assert(steer_threw);
+
+    vsim::UserInput drift_toggle{};
+    drift_toggle.dt                    = 0.1;
+    drift_toggle.timestamp             = 0.0;
+    drift_toggle.longitudinal.throttle = 0.1;
+    drift_toggle.drift_toggle          = 2.0;
+    bool drift_threw                   = false;
+    try {
+        drift_toggle.validate();
+    } catch (const ::velox::errors::InputError& ex) {
+        drift_threw = std::string{ex.what()}.find("drift_toggle") != std::string::npos;
+    }
+    assert(drift_threw);
 }
 
 void compare_row(const ReferenceRow& ref, const vt::SimulationTelemetry& telem)

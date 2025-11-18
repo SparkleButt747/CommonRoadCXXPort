@@ -25,6 +25,13 @@ inline void draw_telemetry_imgui(const SimulationTelemetry& telemetry, const cha
     ImGui::Text("Acceleration: long %.3f m/s^2 | lat %.3f m/s^2",
                 telemetry.acceleration.longitudinal,
                 telemetry.acceleration.lateral);
+    ImGui::Text("Slip angle: %.4f rad", telemetry.traction.slip_angle);
+    ImGui::Text("Front slip: %.4f rad  Rear slip: %.4f rad",
+                telemetry.traction.front_slip_angle,
+                telemetry.traction.rear_slip_angle);
+    ImGui::Text("Lateral utilisation: %.3f%s",
+                telemetry.traction.lateral_force_saturation,
+                telemetry.traction.drift_mode ? " (drift)" : "");
 
     ImGui::Separator();
     ImGui::Text("Steering: desired %.3f rad (rate %.3f)",
@@ -85,6 +92,7 @@ inline void draw_telemetry_imgui(const SimulationTelemetry& telemetry, const cha
                 telemetry.totals.distance_traveled_m,
                 telemetry.totals.energy_consumed_joules * 1e-3);
     ImGui::Text("Low-speed safety: %s", telemetry.low_speed_engaged ? "ENGAGED" : "Released");
+    ImGui::Text("Drift mode: %s", telemetry.traction.drift_mode ? "ON" : "Off");
 }
 
 } // namespace velox::telemetry

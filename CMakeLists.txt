@@ -297,6 +297,15 @@ if(BUILD_VELOX_TESTS)
     )
     add_test(NAME test_telemetry_population COMMAND test_telemetry_population)
 
+    add_executable(test_telemetry_drift_metrics
+        tests/test_telemetry_drift_metrics.cpp
+    )
+    target_link_libraries(test_telemetry_drift_metrics
+        PRIVATE
+            velox
+    )
+    add_test(NAME test_telemetry_drift_metrics COMMAND test_telemetry_drift_metrics)
+
     add_executable(test_simulation_daemon
         tests/test_simulation_daemon.cpp
     )
