@@ -46,17 +46,6 @@ struct SimulationUiState {
     double          dt_warning_expires{0.0};
 };
 
-const char* gear_display_name(vsim::GearSelection gear)
-{
-    switch (gear) {
-        case vsim::GearSelection::Park: return "Park";
-        case vsim::GearSelection::Reverse: return "Reverse";
-        case vsim::GearSelection::Neutral: return "Neutral";
-        case vsim::GearSelection::Drive: return "Drive";
-    }
-    return "Unknown";
-}
-
 vsim::ModelTiming::StepSchedule plan_schedule(const vsim::ModelTimingInfo& info, double requested_dt)
 {
     vsim::ModelTiming timing{info};
@@ -223,7 +212,6 @@ int main(int, char**)
     bool  running            = true;
     float keyboard_brake_bias = 1.0f;
     vsim::UserInput current_input{};
-    current_input.gear = vsim::GearSelection::Drive;
     std::string input_error_message;
     double input_error_expires = 0.0;
 
@@ -245,14 +233,6 @@ int main(int, char**)
                     running = false;
                 } else if (event.key.keysym.sym == SDLK_r) {
                     request_reset = true;
-                } else if (event.key.keysym.sym == SDLK_1) {
-                    current_input.gear = vsim::GearSelection::Park;
-                } else if (event.key.keysym.sym == SDLK_2) {
-                    current_input.gear = vsim::GearSelection::Reverse;
-                } else if (event.key.keysym.sym == SDLK_3) {
-                    current_input.gear = vsim::GearSelection::Neutral;
-                } else if (event.key.keysym.sym == SDLK_4) {
-                    current_input.gear = vsim::GearSelection::Drive;
                 }
             }
         }
@@ -329,11 +309,20 @@ int main(int, char**)
             ImGui::Begin("Simulation Control");
 
             ImGui::Text("Time: %.2f s", telemetry.totals.simulation_time_s);
+            const bool drift_on           = telemetry.traction.drift_mode;
+            const bool low_speed_latched  = telemetry.low_speed_engaged;
+            const ImVec4 drift_color      = drift_on ? ImVec4(0.78f, 0.92f, 0.36f, 1.0f)
+                                                     : ImVec4(0.55f, 0.55f, 0.55f, 1.0f);
+            const ImVec4 latch_color      = low_speed_latched ? ImVec4(1.0f, 0.62f, 0.26f, 1.0f)
+                                                             : ImVec4(0.55f, 0.55f, 0.55f, 1.0f);
+            ImGui::TextColored(drift_color, "Drift mode: %s", drift_on ? "ACTIVE" : "Off");
+            ImGui::TextColored(latch_color,
+                               "Low-speed safety latch: %s",
+                               low_speed_latched ? "ENGAGED" : "Released");
             ImGui::Separator();
 
             ImGui::Text("Keyboard controls");
             ImGui::Text("W/Up: throttle  A/D or \u2190/\u2192: steer  R: reset  ESC: quit");
-            ImGui::Text("1/2/3/4: gear P/R/N/D");
             if (ImGui::SliderFloat("Keyboard brake bias", &keyboard_brake_bias, 0.0f, 1.0f, "%.2f")) {
                 keyboard_brake_bias = std::clamp(keyboard_brake_bias, 0.0f, 1.0f);
             }
@@ -341,7 +330,6 @@ int main(int, char**)
                 "S/Down applies %.0f%%%% braking using the bias slider for proportional stops."
                 " Hold SPACE to request 100%%%% emergency braking.",
                 keyboard_brake_bias * 100.0f);
-            ImGui::Text("Gear: %s", gear_display_name(current_input.gear));
             if (input_error_expires > now_seconds) {
                 ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f),
                                    "Input error: %s",

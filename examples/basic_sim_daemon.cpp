@@ -17,7 +17,6 @@ int main()
     SimulationDaemon daemon(init);
 
     UserInput input{};
-    input.gear                      = GearSelection::Drive;
     input.longitudinal.throttle     = 0.25;
     input.longitudinal.brake        = 0.0;
     input.steering_nudge            = 0.0;

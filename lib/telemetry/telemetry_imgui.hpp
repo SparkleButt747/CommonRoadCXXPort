@@ -10,6 +10,15 @@ inline void draw_telemetry_imgui(const SimulationTelemetry& telemetry, const cha
     ImGui::Separator();
     ImGui::TextUnformatted(label);
 
+    const ImVec4 latch_color = telemetry.low_speed_engaged ? ImVec4(1.0f, 0.62f, 0.26f, 1.0f)
+                                                           : ImVec4(0.6f, 0.6f, 0.6f, 1.0f);
+    const ImVec4 drift_color = telemetry.traction.drift_mode ? ImVec4(0.78f, 0.92f, 0.36f, 1.0f)
+                                                             : ImVec4(0.6f, 0.6f, 0.6f, 1.0f);
+    ImGui::TextColored(latch_color,
+                       "Low-speed safety latch: %s",
+                       telemetry.low_speed_engaged ? "ENGAGED" : "Released");
+    ImGui::TextColored(drift_color, "Drift mode: %s", telemetry.traction.drift_mode ? "ACTIVE" : "Off");
+
     ImGui::Text("Pose: (%.3f, %.3f) yaw %.3f rad",
                 telemetry.pose.x,
                 telemetry.pose.y,
@@ -91,8 +100,6 @@ inline void draw_telemetry_imgui(const SimulationTelemetry& telemetry, const cha
     ImGui::Text("Totals: distance %.2f m | energy %.2f kJ",
                 telemetry.totals.distance_traveled_m,
                 telemetry.totals.energy_consumed_joules * 1e-3);
-    ImGui::Text("Low-speed safety: %s", telemetry.low_speed_engaged ? "ENGAGED" : "Released");
-    ImGui::Text("Drift mode: %s", telemetry.traction.drift_mode ? "ON" : "Off");
 }
 
 } // namespace velox::telemetry
