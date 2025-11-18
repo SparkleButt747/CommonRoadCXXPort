@@ -42,6 +42,12 @@ The daemon reports a `telemetry::SimulationTelemetry` struct on every step:
 
 Use `telemetry::to_json` to serialize the payload or `telemetry::draw_telemetry_imgui` for debug UI rendering.
 
+### Drift mode and low-speed safety
+- The low-speed safety controller clamps yaw rate, slip angle, wheel speeds, and steering to keep models stable at near-zero speed. It exposes a relaxed “drift” profile with higher limits and looser clamping when controlled oversteer is desired.
+- Each model’s default profile is defined in `config/low_speed_safety*.yaml`. The single-track drift model ships with drift mode enabled by default, while other models default to the normal profile.
+- Enable or disable drift mode via `SimulationDaemon::InitParams::drift_enabled`, `ResetParams::drift_enabled`, or a `UserInput::drift_toggle` value ≥ `0.5`. Calling `SimulationDaemon::reset` without a drift override restores the model’s configured default and reinitializes controller integrators and safety latches.
+- Run `drift_mode_demo` after building to see drift mode expand yaw/slip telemetry compared to the normal profile in a headless loop; it uses the single-track drift (`ModelType::STD`) model and flips the drift profile on/off between passes.
+
 ### Error handling and logging
 - All library errors derive from `velox::errors::VeloxError` (specializations include `ConfigError`, `InputError`, and `SimulationError`). Errors include contextual file/line metadata via the `VELOX_LOC`/`VELOX_MODEL`/`VELOX_CONTEXT` helpers.
 - User input validation throws `InputError`; configuration and simulation failures throw `ConfigError` or `SimulationError` respectively. Callers should surface these messages to users and stop stepping until resolved.
@@ -58,6 +64,7 @@ Targets:
 - `velox` – static library containing the daemon, controllers, telemetry, and utility code.
 - `commonroad_app` – SDL2/ImGui demo that showcases migrating a legacy UI to the daemon API.
 - `basic_sim_daemon` – minimal example under `examples/` showing how to step the daemon and consume telemetry.
+- `drift_mode_demo` – headless example that flips the drift safety profile on/off to demonstrate oversteer allowances.
 
 ## SDL demo controls
 

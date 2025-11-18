@@ -321,7 +321,6 @@ SimulationDaemon::SimulationDaemon(const InitParams& init)
 void SimulationDaemon::reset(const ResetParams& params)
 {
     try {
-        const bool model_changed = params.model && (*params.model != model_);
         if (params.model) {
             model_ = *params.model;
         }
@@ -338,7 +337,7 @@ void SimulationDaemon::reset(const ResetParams& params)
         const auto safety_cfg = configs_.load_low_speed_safety_config(model_);
         if (params.drift_enabled.has_value()) {
             drift_enabled_ = *params.drift_enabled;
-        } else if (!safety_ || model_changed) {
+        } else {
             drift_enabled_ = safety_cfg.drift_enabled;
         }
         init_.drift_enabled = drift_enabled_;
