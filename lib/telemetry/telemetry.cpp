@@ -280,88 +280,90 @@ std::string to_json(const SimulationTelemetry& telemetry)
     oss << std::fixed << std::setprecision(6);
 
     oss << '{'
-        << "\"pose\":{""
-        << "\"x\":" << telemetry.pose.x << ",""
-        << "\"y\":" << telemetry.pose.y << ",""
-        << "\"yaw\":" << telemetry.pose.yaw << "},"";
+        << "\"pose\":{"
+        << "\"x\":" << telemetry.pose.x << ","
+        << "\"y\":" << telemetry.pose.y << ","
+        << "\"yaw\":" << telemetry.pose.yaw << "},";
 
-    oss << "\"velocity\":{""
-        << "\"speed\":" << telemetry.velocity.speed << ",""
-        << "\"longitudinal\":" << telemetry.velocity.longitudinal << ",""
-        << "\"lateral\":" << telemetry.velocity.lateral << ",""
-        << "\"yaw_rate\":" << telemetry.velocity.yaw_rate << ",""
-        << "\"global_x\":" << telemetry.velocity.global_x << ",""
-        << "\"global_y\":" << telemetry.velocity.global_y << "},"";
+    oss << "\"velocity\":{"
+        << "\"speed\":" << telemetry.velocity.speed << ","
+        << "\"longitudinal\":" << telemetry.velocity.longitudinal << ","
+        << "\"lateral\":" << telemetry.velocity.lateral << ","
+        << "\"yaw_rate\":" << telemetry.velocity.yaw_rate << ","
+        << "\"global_x\":" << telemetry.velocity.global_x << ","
+        << "\"global_y\":" << telemetry.velocity.global_y << "},";
 
-    oss << "\"acceleration\":{""
-        << "\"longitudinal\":" << telemetry.acceleration.longitudinal << ",""
-        << "\"lateral\":" << telemetry.acceleration.lateral << "},"";
+    oss << "\"acceleration\":{"
+        << "\"longitudinal\":" << telemetry.acceleration.longitudinal << ","
+        << "\"lateral\":" << telemetry.acceleration.lateral << "},";
 
-    oss << "\"traction\":{""
-        << "\"slip_angle\":" << telemetry.traction.slip_angle << ",""
-        << "\"front_slip_angle\":" << telemetry.traction.front_slip_angle << ",""
-        << "\"rear_slip_angle\":" << telemetry.traction.rear_slip_angle << ",""
-        << "\"lateral_force_saturation\":" << telemetry.traction.lateral_force_saturation << ",""
-        << "\"drift_mode\":" << (telemetry.traction.drift_mode ? "true" : "false") << "},"";
+    oss << "\"traction\":{"
+        << "\"slip_angle\":" << telemetry.traction.slip_angle << ","
+        << "\"front_slip_angle\":" << telemetry.traction.front_slip_angle << ","
+        << "\"rear_slip_angle\":" << telemetry.traction.rear_slip_angle << ","
+        << "\"lateral_force_saturation\":" << telemetry.traction.lateral_force_saturation << ","
+        << "\"drift_mode\":" << (telemetry.traction.drift_mode ? "true" : "false") << "},";
 
     auto write_wheel = [&oss](const char* name, const WheelTelemetry& wheel) {
-        oss << '\"' << name << "\":""
-            << "{\"speed\":" << wheel.speed << ",""
-            << "\"slip_ratio\":" << wheel.slip_ratio << ",""
-            << "\"friction_utilization\":" << wheel.friction_utilization << "}"";
+        oss << '\"' << name << "\":"
+            << "{\"speed\":" << wheel.speed << ","
+            << "\"slip_ratio\":" << wheel.slip_ratio << ","
+            << "\"friction_utilization\":" << wheel.friction_utilization << "}";
     };
 
     auto write_axle = [&oss, &write_wheel](const char* name, const AxleTelemetry& axle) {
-        oss << '\"' << name << "\":{""
-            << "\"drive_torque\":" << axle.drive_torque << ",""
-            << "\"brake_torque\":" << axle.brake_torque << ",""
-            << "\"regen_torque\":" << axle.regen_torque << ",""
-            << "\"normal_force\":" << axle.normal_force << ","";
+        oss << '\"' << name << "\":{"
+            << "\"drive_torque\":" << axle.drive_torque << ","
+            << "\"brake_torque\":" << axle.brake_torque << ","
+            << "\"regen_torque\":" << axle.regen_torque << ","
+            << "\"normal_force\":" << axle.normal_force << ',';
         write_wheel("left", axle.left);
         oss << ',';
         write_wheel("right", axle.right);
         oss << '}';
     };
 
-    oss << "\"steering\":{""
-        << "\"desired_angle\":" << telemetry.steering.desired_angle << ",""
-        << "\"desired_rate\":" << telemetry.steering.desired_rate << ",""
-        << "\"actual_angle\":" << telemetry.steering.actual_angle << ",""
-        << "\"actual_rate\":" << telemetry.steering.actual_rate << "},"";
+    oss << "\"steering\":{"
+        << "\"desired_angle\":" << telemetry.steering.desired_angle << ","
+        << "\"desired_rate\":" << telemetry.steering.desired_rate << ","
+        << "\"actual_angle\":" << telemetry.steering.actual_angle << ","
+        << "\"actual_rate\":" << telemetry.steering.actual_rate << "},";
 
-    oss << "\"controller\":{""
-        << "\"acceleration\":" << telemetry.controller.acceleration << ",""
-        << "\"throttle\":" << telemetry.controller.throttle << ",""
-        << "\"brake\":" << telemetry.controller.brake << ",""
-        << "\"drive_force\":" << telemetry.controller.drive_force << ",""
-        << "\"brake_force\":" << telemetry.controller.brake_force << ",""
-        << "\"regen_force\":" << telemetry.controller.regen_force << ",""
-        << "\"hydraulic_force\":" << telemetry.controller.hydraulic_force << ",""
-        << "\"drag_force\":" << telemetry.controller.drag_force << ",""
-        << "\"rolling_force\":" << telemetry.controller.rolling_force << "},"";
+    oss << "\"controller\":{"
+        << "\"acceleration\":" << telemetry.controller.acceleration << ","
+        << "\"throttle\":" << telemetry.controller.throttle << ","
+        << "\"brake\":" << telemetry.controller.brake << ","
+        << "\"drive_force\":" << telemetry.controller.drive_force << ","
+        << "\"brake_force\":" << telemetry.controller.brake_force << ","
+        << "\"regen_force\":" << telemetry.controller.regen_force << ","
+        << "\"hydraulic_force\":" << telemetry.controller.hydraulic_force << ","
+        << "\"drag_force\":" << telemetry.controller.drag_force << ","
+        << "\"rolling_force\":" << telemetry.controller.rolling_force << "},";
 
-    oss << "\"powertrain\":{""
-        << "\"total_torque\":" << telemetry.powertrain.total_torque << ",""
-        << "\"drive_torque\":" << telemetry.powertrain.drive_torque << ",""
-        << "\"regen_torque\":" << telemetry.powertrain.regen_torque << ",""
-        << "\"mechanical_power\":" << telemetry.powertrain.mechanical_power << ",""
-        << "\"battery_power\":" << telemetry.powertrain.battery_power << ",""
-        << "\"soc\":" << telemetry.powertrain.soc << "},"";
+    oss << "\"powertrain\":{"
+        << "\"total_torque\":" << telemetry.powertrain.total_torque << ","
+        << "\"drive_torque\":" << telemetry.powertrain.drive_torque << ","
+        << "\"regen_torque\":" << telemetry.powertrain.regen_torque << ","
+        << "\"mechanical_power\":" << telemetry.powertrain.mechanical_power << ","
+        << "\"battery_power\":" << telemetry.powertrain.battery_power << ","
+        << "\"soc\":" << telemetry.powertrain.soc << "},";
 
     write_axle("front_axle", telemetry.front_axle);
     oss << ',';
     write_axle("rear_axle", telemetry.rear_axle);
     oss << ',';
 
-    oss << "\"totals\":{""
-        << "\"distance_traveled_m\":" << telemetry.totals.distance_traveled_m << ",""
-        << "\"energy_consumed_joules\":" << telemetry.totals.energy_consumed_joules << ",""
-        << "\"simulation_time_s\":" << telemetry.totals.simulation_time_s << "},"";
+    oss << "\"totals\":{"
+        << "\"distance_traveled_m\":" << telemetry.totals.distance_traveled_m << ","
+        << "\"energy_consumed_joules\":" << telemetry.totals.energy_consumed_joules << ","
+        << "\"simulation_time_s\":" << telemetry.totals.simulation_time_s << "},";
 
     oss << "\"low_speed_engaged\":" << (telemetry.low_speed_engaged ? "true" : "false")
         << '}';
 
     return oss.str();
 }
+
+
 } // namespace velox::telemetry
 
