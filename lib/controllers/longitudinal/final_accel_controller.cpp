@@ -88,14 +88,18 @@ ControllerOutput FinalAccelController::step(const DriverIntent& intent, double s
 {
     apply_actuator_dynamics(intent, dt);
 
+    const bool   below_stop_speed      = std::abs(speed) <= cfg_.stop_speed_epsilon;
+    const double effective_speed       = below_stop_speed ? 0.0 : speed;
+
     const double throttle_command = throttle_ * (1.0 - std::min(brake_, 1.0));
-    const double available_regen_force = powertrain_.available_regen_torque(speed) / wheel_radius_;
+    const double available_regen_force =
+        powertrain_.available_regen_torque(effective_speed) / wheel_radius_;
     const BrakeBlendOutput brake_output =
-        brakes_.blend(brake_, speed, available_regen_force);
+        brakes_.blend(brake_, effective_speed, available_regen_force);
 
     const double regen_torque_request = brake_output.regen_force * wheel_radius_;
     const PowertrainOutput powertrain_output =
-        powertrain_.step(throttle_command, regen_torque_request, speed, dt);
+        powertrain_.step(throttle_command, regen_torque_request, effective_speed, dt);
 
     double drive_force = powertrain_output.drive_torque / wheel_radius_;
     double regen_force = powertrain_output.regen_torque / wheel_radius_;
@@ -107,16 +111,16 @@ ControllerOutput FinalAccelController::step(const DriverIntent& intent, double s
         std::max(0.0, brake_output.hydraulic_force + (brake_output.regen_force - regen_force));
     const double brake_force = hydraulic_force + regen_force;
 
-    const double drag_force    = aero_.drag_force(speed);
-    const double downforce     = aero_.downforce(speed);
+    const double drag_force    = aero_.drag_force(effective_speed);
+    const double downforce     = aero_.downforce(effective_speed);
     const double normal_force  = mass_ * kGravity + downforce;
-    const double rolling_force = rolling_.force(speed, normal_force);
+    const double rolling_force = rolling_.force(effective_speed, normal_force);
 
     const double net_force = drive_force - brake_force + drag_force + rolling_force;
     double acceleration    = net_force / mass_;
     acceleration           = std::clamp(acceleration, cfg_.accel_min, cfg_.accel_max);
 
-    if (std::abs(speed) <= cfg_.stop_speed_epsilon && acceleration < 0.0) {
+    if (below_stop_speed && acceleration < 0.0) {
         acceleration = 0.0;
     }
 

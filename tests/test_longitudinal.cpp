@@ -57,6 +57,83 @@ void test_regen_fade_out()
     assert(below.hydraulic_force > above.hydraulic_force);
 }
 
+double advance_speed(double speed, double acceleration, double dt, double stop_speed_epsilon)
+{
+    const double next_speed = speed + acceleration * dt;
+    if (std::abs(next_speed) <= stop_speed_epsilon) {
+        return 0.0;
+    }
+    return std::max(0.0, next_speed);
+}
+
+void test_coast_to_rest()
+{
+    vio::ConfigManager configs{};
+    const auto params      = vm::parameters_vehicle2();
+    const auto power_cfg   = configs.load_powertrain_config();
+    const auto aero_cfg    = configs.load_aero_config();
+    const auto rolling_cfg = configs.load_rolling_resistance_config();
+    const auto brake_cfg   = configs.load_brake_config();
+    const auto ctrl_cfg    = configs.load_final_accel_controller_config();
+
+    vml::FinalAccelController controller(params.m,
+                                         params.R_w,
+                                         power_cfg,
+                                         aero_cfg,
+                                         rolling_cfg,
+                                         brake_cfg,
+                                         ctrl_cfg);
+
+    const double dt = 0.05;
+    double       speed = 1.0;
+    bool         reached_stop = false;
+    for (int i = 0; i < 800; ++i) {
+        const auto output = controller.step(vml::DriverIntent{0.0, 0.0}, speed, dt);
+        speed              = advance_speed(speed, output.acceleration, dt, ctrl_cfg.stop_speed_epsilon);
+        if (speed == 0.0) {
+            reached_stop = true;
+            const auto settle = controller.step(vml::DriverIntent{0.0, 0.0}, speed, dt);
+            assert(std::abs(settle.acceleration) <= 1e-9);
+            break;
+        }
+    }
+    assert(reached_stop && "Vehicle should coast to a full stop");
+}
+
+void test_brake_to_stop()
+{
+    vio::ConfigManager configs{};
+    const auto params      = vm::parameters_vehicle2();
+    const auto power_cfg   = configs.load_powertrain_config();
+    const auto aero_cfg    = configs.load_aero_config();
+    const auto rolling_cfg = configs.load_rolling_resistance_config();
+    const auto brake_cfg   = configs.load_brake_config();
+    const auto ctrl_cfg    = configs.load_final_accel_controller_config();
+
+    vml::FinalAccelController controller(params.m,
+                                         params.R_w,
+                                         power_cfg,
+                                         aero_cfg,
+                                         rolling_cfg,
+                                         brake_cfg,
+                                         ctrl_cfg);
+
+    const double dt = 0.05;
+    double       speed = 5.0;
+    bool         reached_stop = false;
+    for (int i = 0; i < 400; ++i) {
+        const auto output = controller.step(vml::DriverIntent{0.0, 1.0}, speed, dt);
+        speed              = advance_speed(speed, output.acceleration, dt, ctrl_cfg.stop_speed_epsilon);
+        if (speed == 0.0) {
+            reached_stop = true;
+            const auto settle = controller.step(vml::DriverIntent{0.0, 1.0}, speed, dt);
+            assert(std::abs(settle.acceleration) <= 1e-9);
+            break;
+        }
+    }
+    assert(reached_stop && "Vehicle should brake to a full stop");
+}
+
 void test_stop_and_go_continuity()
 {
     vio::ConfigManager configs{};
@@ -83,9 +160,9 @@ void test_stop_and_go_continuity()
     bool   reached_stop   = false;
     for (int i = 0; i < 400; ++i) {
         const auto output = controller.step(vml::DriverIntent{0.0, 1.0}, speed, dt);
-        speed              = std::max(0.0, speed + output.acceleration * dt);
-        if (speed <= ctrl_cfg.stop_speed_epsilon + 1e-6) {
-            stop_speed   = speed;
+        speed              = advance_speed(speed, output.acceleration, dt, ctrl_cfg.stop_speed_epsilon);
+        if (speed == 0.0) {
+            stop_speed   = 0.0;
             reached_stop = true;
             const auto settle = controller.step(vml::DriverIntent{0.0, 1.0}, speed, dt);
             accel_at_stop = settle.acceleration;
@@ -93,13 +170,13 @@ void test_stop_and_go_continuity()
         }
     }
     assert(reached_stop);
-    assert(stop_speed <= ctrl_cfg.stop_speed_epsilon + 1e-6);
+    assert(stop_speed <= ctrl_cfg.stop_speed_epsilon + 1e-9);
     assert(accel_at_stop >= -1e-6);
 
     bool resumed_motion = false;
     for (int i = 0; i < 200; ++i) {
         const auto output = controller.step(vml::DriverIntent{1.0, 0.0}, speed, dt);
-        speed              = std::max(0.0, speed + output.acceleration * dt);
+        speed              = advance_speed(speed, output.acceleration, dt, ctrl_cfg.stop_speed_epsilon);
         if (output.acceleration > 0.0) {
             resumed_motion = true;
             break;
@@ -113,6 +190,8 @@ int main()
     try {
         test_soc_bounds_validation();
         test_regen_fade_out();
+        test_coast_to_rest();
+        test_brake_to_stop();
         test_stop_and_go_continuity();
     } catch (const std::exception& ex) {
         std::cerr << "Test raised exception: " << ex.what() << '\n';

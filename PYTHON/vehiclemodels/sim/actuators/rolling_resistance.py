@@ -16,7 +16,7 @@ class RollingResistance:
         self.gravity = gravity
 
     def force(self, speed: float, normal_force: float) -> float:
-        if abs(speed) < 1e-3:
-            return 0.0
         base = self.config.c_rr * normal_force
+        if speed == 0.0:
+            return 0.0
         return -math.copysign(base, speed)
