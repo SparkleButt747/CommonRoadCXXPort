@@ -90,12 +90,16 @@ ControllerOutput FinalAccelController::step(const DriverIntent& intent, double s
 
     const bool   below_stop_speed      = std::abs(speed) <= cfg_.stop_speed_epsilon;
     const double effective_speed       = below_stop_speed ? 0.0 : speed;
+    const double brake_scale           = (cfg_.stop_speed_epsilon > 0.0)
+                                           ? std::clamp(std::abs(speed) / cfg_.stop_speed_epsilon, 0.0, 1.0)
+                                           : 1.0;
+    const double brake_request         = brake_ * brake_scale;
 
     const double throttle_command = throttle_ * (1.0 - std::min(brake_, 1.0));
     const double available_regen_force =
         powertrain_.available_regen_torque(effective_speed) / wheel_radius_;
     const BrakeBlendOutput brake_output =
-        brakes_.blend(brake_, effective_speed, available_regen_force);
+        brakes_.blend(brake_request, effective_speed, available_regen_force);
 
     const double regen_torque_request = brake_output.regen_force * wheel_radius_;
     const PowertrainOutput powertrain_output =
@@ -127,7 +131,7 @@ ControllerOutput FinalAccelController::step(const DriverIntent& intent, double s
     return ControllerOutput{
         .acceleration    = acceleration,
         .throttle        = throttle_command,
-        .brake           = brake_,
+        .brake           = brake_request,
         .drive_force     = drive_force,
         .brake_force     = brake_force,
         .regen_force     = regen_force,

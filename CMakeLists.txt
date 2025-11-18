@@ -288,6 +288,15 @@ if(BUILD_VELOX_TESTS)
     )
     add_test(NAME test_timestep_bounds COMMAND test_timestep_bounds)
 
+    add_executable(test_drift_brake_settle
+        tests/test_drift_brake_settle.cpp
+    )
+    target_link_libraries(test_drift_brake_settle
+        PRIVATE
+            velox
+    )
+    add_test(NAME test_drift_brake_settle COMMAND test_drift_brake_settle)
+
     add_executable(test_init_ks_kst
         tests/test_init_ks_kst.cpp
     )
