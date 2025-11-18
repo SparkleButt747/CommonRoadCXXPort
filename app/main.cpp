@@ -220,8 +220,8 @@ int main(int, char**)
 
     vtel::SimulationTelemetry telemetry = daemon.telemetry();
 
-    bool   running = true;
-    double keyboard_brake_bias = 1.0;
+    bool  running            = true;
+    float keyboard_brake_bias = 1.0f;
     vsim::UserInput current_input{};
     current_input.gear = vsim::GearSelection::Drive;
     std::string input_error_message;

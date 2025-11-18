@@ -49,7 +49,7 @@ int main()
     try {
         vio::ConfigManager missing(temp_root);
         std::cout << "Attempting to load from: " << temp_root << '\n';
-        missing.load_brake_config();
+        [[maybe_unused]] const auto brake_cfg = missing.load_brake_config();
     } catch (const std::exception&) {
         missing_threw = true;
     }
@@ -73,7 +73,7 @@ int main()
     bool invalid_range_threw = false;
     try {
         vio::ConfigManager invalid(invalid_root);
-        invalid.load_powertrain_config();
+        [[maybe_unused]] const auto powertrain_cfg = invalid.load_powertrain_config();
     } catch (const std::exception&) {
         invalid_range_threw = true;
     }
@@ -98,7 +98,7 @@ int main()
         vio::ConfigManager timing_mgr{timing_root};
         bool               bad_dt_threw = false;
         try {
-            timing_mgr.load_model_timing(vsim::ModelType::ST);
+            [[maybe_unused]] const auto timing_cfg = timing_mgr.load_model_timing(vsim::ModelType::ST);
         } catch (const std::exception& ex) {
             bad_dt_threw = (std::string{ex.what()}.find("nominal_dt") != std::string::npos)
                 || (std::string{ex.what()}.find("max_dt") != std::string::npos);
@@ -157,7 +157,8 @@ int main()
     bool missing_toggle_threw = false;
     try {
         vio::ConfigManager missing_toggle_mgr{missing_toggle_root};
-        missing_toggle_mgr.load_low_speed_safety_config(vsim::ModelType::KS_REAR);
+        [[maybe_unused]] const auto unused_cfg =
+            missing_toggle_mgr.load_low_speed_safety_config(vsim::ModelType::KS_REAR);
     } catch (const std::exception&) {
         missing_toggle_threw = true;
     }
@@ -170,7 +171,7 @@ int main()
     bool missing_field_threw = false;
     try {
         vio::ConfigManager missing_field_mgr{steering_root};
-        missing_field_mgr.load_steering_config();
+        [[maybe_unused]] const auto unused_cfg = missing_field_mgr.load_steering_config();
     } catch (const std::exception&) {
         missing_field_threw = true;
     }
