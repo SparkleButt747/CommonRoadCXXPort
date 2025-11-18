@@ -102,10 +102,17 @@ class FinalAccelController:
         below_stop_speed = abs(speed) <= self.cfg.stop_speed_epsilon
         effective_speed = 0.0 if below_stop_speed else speed
 
+        brake_scale = (
+            min(abs(speed) / self.cfg.stop_speed_epsilon, 1.0)
+            if self.cfg.stop_speed_epsilon > 0.0
+            else 1.0
+        )
+        brake_request = self.brake * brake_scale
+
         throttle = self.throttle * (1.0 - min(self.brake, 1.0))
         available_regen = self.powertrain.available_regen_torque(effective_speed) / self.wheel_radius
         regen_request, hydraulic_force, _ = self.brakes.blend(
-            self.brake, effective_speed, available_regen
+            brake_request, effective_speed, available_regen
         )
 
         regen_torque_request = regen_request * self.wheel_radius
@@ -137,7 +144,7 @@ class FinalAccelController:
             "AccelCtrl | v=%.2f m/s throttle=%.2f brake=%.2f drive=%.1fN regen=%.1fN hyd=%.1fN drag=%.1fN roll=%.1fN -> a=%.2fm/s^2",
             speed,
             throttle,
-            self.brake,
+            brake_request,
             drive_force,
             regen_force,
             hydraulic_force,
