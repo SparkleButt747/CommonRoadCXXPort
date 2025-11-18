@@ -108,15 +108,60 @@ int main()
 
     const auto override_root = make_temp_dir("velox_safety_override");
     write_file(override_root / "low_speed_safety.yaml",
-               "engage_speed: 0.1\nrelease_speed: 0.2\nyaw_rate_limit: 0.5\nslip_angle_limit: 0.3\nstop_speed_epsilon: 0.05\n");
+               "drift_enabled: false\n"
+               "stop_speed_epsilon: 0.05\n"
+               "normal:\n"
+               "  engage_speed: 0.1\n"
+               "  release_speed: 0.2\n"
+               "  yaw_rate_limit: 0.5\n"
+               "  slip_angle_limit: 0.3\n"
+               "drift:\n"
+               "  engage_speed: 0.05\n"
+               "  release_speed: 0.6\n"
+               "  yaw_rate_limit: 0.8\n"
+               "  slip_angle_limit: 0.7\n");
     write_file(override_root / "low_speed_safety_st.yaml",
-               "engage_speed: 1.1\nrelease_speed: 1.2\nyaw_rate_limit: 0.25\nslip_angle_limit: 0.15\nstop_speed_epsilon: 0.01\n");
+               "drift_enabled: true\n"
+               "stop_speed_epsilon: 0.01\n"
+               "normal:\n"
+               "  engage_speed: 1.1\n"
+               "  release_speed: 1.2\n"
+               "  yaw_rate_limit: 0.25\n"
+               "  slip_angle_limit: 0.15\n"
+               "drift:\n"
+               "  engage_speed: 0.9\n"
+               "  release_speed: 1.3\n"
+               "  yaw_rate_limit: 0.4\n"
+               "  slip_angle_limit: 0.3\n");
 
     vio::ConfigManager override_mgr{override_root};
     const auto         default_cfg  = override_mgr.load_low_speed_safety_config(vsim::ModelType::KS_REAR);
     const auto         override_cfg = override_mgr.load_low_speed_safety_config(vsim::ModelType::ST);
-    assert(default_cfg.engage_speed == 0.1 && override_cfg.engage_speed == 1.1);
-    assert(default_cfg.release_speed == 0.2 && override_cfg.release_speed == 1.2);
+    assert(default_cfg.normal.engage_speed == 0.1 && override_cfg.normal.engage_speed == 1.1);
+    assert(default_cfg.normal.release_speed == 0.2 && override_cfg.normal.release_speed == 1.2);
+    assert(!default_cfg.drift_enabled && override_cfg.drift_enabled);
+
+    const auto missing_toggle_root = make_temp_dir("velox_safety_missing_toggle");
+    write_file(missing_toggle_root / "low_speed_safety.yaml",
+               "stop_speed_epsilon: 0.05\n"
+               "normal:\n"
+               "  engage_speed: 0.1\n"
+               "  release_speed: 0.2\n"
+               "  yaw_rate_limit: 0.5\n"
+               "  slip_angle_limit: 0.3\n"
+               "drift:\n"
+               "  engage_speed: 0.05\n"
+               "  release_speed: 0.6\n"
+               "  yaw_rate_limit: 0.8\n"
+               "  slip_angle_limit: 0.7\n");
+    bool missing_toggle_threw = false;
+    try {
+        vio::ConfigManager missing_toggle_mgr{missing_toggle_root};
+        missing_toggle_mgr.load_low_speed_safety_config(vsim::ModelType::KS_REAR);
+    } catch (const std::exception&) {
+        missing_toggle_threw = true;
+    }
+    assert(missing_toggle_threw && "drift_enabled must be required in safety config");
 
     const auto steering_root = make_temp_dir("velox_steering_missing");
     write_file(steering_root / "steering.yaml",
@@ -134,4 +179,3 @@ int main()
     std::cout << "Config manager tests passed\n";
     return 0;
 }
-

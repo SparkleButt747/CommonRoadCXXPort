@@ -5,14 +5,26 @@
 
 namespace velox::simulation {
 
+struct LowSpeedSafetyProfile {
+    double engage_speed     = 0.0;
+    double release_speed    = 0.0;
+    double yaw_rate_limit   = 0.0;
+    double slip_angle_limit = 0.0;
+
+    void validate(const char* name) const;
+};
+
 struct LowSpeedSafetyConfig {
-    double engage_speed        = 0.0;
-    double release_speed       = 0.0;
-    double yaw_rate_limit      = 0.0;
-    double slip_angle_limit    = 0.0;
-    double stop_speed_epsilon  = 0.0;
+    LowSpeedSafetyProfile normal{};
+    LowSpeedSafetyProfile drift{};
+    double                stop_speed_epsilon = 0.0;
+    bool                  drift_enabled      = false;
 
     void validate() const;
+    [[nodiscard]] const LowSpeedSafetyProfile& active_profile(bool drift_mode) const
+    {
+        return drift_mode ? drift : normal;
+    }
 };
 
 class LowSpeedSafety {
@@ -29,11 +41,14 @@ public:
 
     void reset();
     bool engaged() const { return engaged_; }
+    bool drift_enabled() const { return drift_enabled_; }
+    void set_drift_enabled(bool enabled) { drift_enabled_ = enabled; }
 
     void apply(std::vector<double>& state, double speed, bool update_latch = true);
 
 private:
     LowSpeedSafetyConfig config_{};
+    bool                 drift_enabled_ = false;
     std::optional<int> longitudinal_index_;
     std::optional<int> lateral_index_;
     std::optional<int> yaw_rate_index_;

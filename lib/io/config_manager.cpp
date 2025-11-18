@@ -274,14 +274,52 @@ controllers::SteeringConfig ConfigManager::parse_steering_config(const YAML::Nod
 }
 
 simulation::LowSpeedSafetyConfig ConfigManager::parse_low_speed_config(const YAML::Node& node,
-                                                                        const std::filesystem::path& path) const
+                                                                      const std::filesystem::path& path) const
 {
     simulation::LowSpeedSafetyConfig cfg{};
-    cfg.engage_speed       = required_scalar<double>(node, "engage_speed", path);
-    cfg.release_speed      = required_scalar<double>(node, "release_speed", path);
-    cfg.yaw_rate_limit     = required_scalar<double>(node, "yaw_rate_limit", path);
-    cfg.slip_angle_limit   = required_scalar<double>(node, "slip_angle_limit", path);
+    const auto normal = node["normal"];
+    const auto drift  = node["drift"];
+    if (!normal || !normal.IsMap()) {
+        std::ostringstream oss;
+        oss << "low speed safety config missing 'normal' section in " << path.string();
+        throw ::velox::errors::ConfigError(VELOX_LOC(oss.str()));
+    }
+    if (!drift || !drift.IsMap()) {
+        std::ostringstream oss;
+        oss << "low speed safety config missing 'drift' section in " << path.string();
+        throw ::velox::errors::ConfigError(VELOX_LOC(oss.str()));
+    }
+
+    const auto parse_profile = [&](const YAML::Node& profile, const char* name) {
+        simulation::LowSpeedSafetyProfile cfg_profile{};
+        cfg_profile.engage_speed     = required_scalar<double>(profile, "engage_speed", path);
+        cfg_profile.release_speed    = required_scalar<double>(profile, "release_speed", path);
+        cfg_profile.yaw_rate_limit   = required_scalar<double>(profile, "yaw_rate_limit", path);
+        cfg_profile.slip_angle_limit = required_scalar<double>(profile, "slip_angle_limit", path);
+        try {
+            cfg_profile.validate(name);
+        } catch (const std::exception&) {
+            throw;
+        }
+        return cfg_profile;
+    };
+
+    cfg.normal             = parse_profile(normal, "normal");
+    cfg.drift              = parse_profile(drift, "drift");
     cfg.stop_speed_epsilon = required_scalar<double>(node, "stop_speed_epsilon", path);
+    const auto drift_enabled_node = node["drift_enabled"];
+    if (!drift_enabled_node) {
+        std::ostringstream oss;
+        oss << "low speed safety config missing 'drift_enabled' in " << path.string();
+        throw ::velox::errors::ConfigError(VELOX_LOC(oss.str()));
+    }
+    try {
+        cfg.drift_enabled = drift_enabled_node.as<bool>();
+    } catch (const YAML::BadConversion& ex) {
+        std::ostringstream oss;
+        oss << "Invalid type for key 'drift_enabled' in " << path.string() << ": " << ex.what();
+        throw ::velox::errors::ConfigError(VELOX_LOC(oss.str()));
+    }
     cfg.validate();
     return cfg;
 }

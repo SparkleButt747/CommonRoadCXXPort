@@ -13,14 +13,27 @@
 namespace vsim = velox::simulation;
 namespace vio  = velox::io;
 
-void test_wheel_speed_clamp()
+vsim::LowSpeedSafetyConfig make_default_config()
 {
     vsim::LowSpeedSafetyConfig cfg{};
-    cfg.engage_speed        = 0.4;
-    cfg.release_speed       = 0.8;
-    cfg.yaw_rate_limit      = 0.5;
-    cfg.slip_angle_limit    = 0.35;
-    cfg.stop_speed_epsilon  = 0.05;
+    cfg.normal.engage_speed     = 0.4;
+    cfg.normal.release_speed    = 0.8;
+    cfg.normal.yaw_rate_limit   = 0.5;
+    cfg.normal.slip_angle_limit = 0.35;
+
+    cfg.drift.engage_speed     = 0.2;
+    cfg.drift.release_speed    = 1.0;
+    cfg.drift.yaw_rate_limit   = 0.8;
+    cfg.drift.slip_angle_limit = 0.6;
+
+    cfg.stop_speed_epsilon = 0.05;
+    cfg.drift_enabled      = false;
+    return cfg;
+}
+
+void test_wheel_speed_clamp()
+{
+    auto cfg = make_default_config();
 
     vsim::LowSpeedSafety safety(
         cfg,
@@ -45,12 +58,7 @@ void test_wheel_speed_clamp()
 
 void test_latch_release_thresholds()
 {
-    vsim::LowSpeedSafetyConfig cfg{};
-    cfg.engage_speed        = 0.4;
-    cfg.release_speed       = 0.8;
-    cfg.yaw_rate_limit      = 0.5;
-    cfg.slip_angle_limit    = 0.35;
-    cfg.stop_speed_epsilon  = 0.05;
+    auto cfg = make_default_config();
 
     vsim::LowSpeedSafety safety(
         cfg,
@@ -65,29 +73,52 @@ void test_latch_release_thresholds()
     );
 
     std::vector<double> state{0.0, 0.0, 0.02, 0.05, 0.0, 0.4};
-    safety.apply(state, cfg.engage_speed - 1e-3, true);
+    safety.apply(state, cfg.normal.engage_speed - 1e-3, true);
     assert(safety.engaged());
-    state[5] = cfg.yaw_rate_limit * 2.0;
+    state[5] = cfg.normal.yaw_rate_limit * 2.0;
 
-    safety.apply(state, cfg.release_speed - 5e-4, true);
-    assert(safety.engaged());
-
-    safety.apply(state, cfg.release_speed + 1e-3, false);
+    safety.apply(state, cfg.normal.release_speed - 5e-4, true);
     assert(safety.engaged());
 
-    safety.apply(state, cfg.release_speed + 1e-3, true);
+    safety.apply(state, cfg.normal.release_speed + 1e-3, false);
+    assert(safety.engaged());
+
+    safety.apply(state, cfg.normal.release_speed + 1e-3, true);
     assert(!safety.engaged());
-    assert(std::abs(state[5]) <= cfg.yaw_rate_limit + 1e-9);
+    assert(std::abs(state[5]) <= cfg.normal.yaw_rate_limit + 1e-9);
+}
+
+void test_drift_profile_selection()
+{
+    auto cfg = make_default_config();
+    cfg.drift_enabled       = false;
+    cfg.drift.yaw_rate_limit = cfg.normal.yaw_rate_limit * 2.0;
+
+    vsim::LowSpeedSafety safety(cfg,
+                                /*longitudinal_index=*/std::nullopt,
+                                /*lateral_index=*/std::nullopt,
+                                /*yaw_rate_index=*/1,
+                                /*slip_index=*/std::nullopt,
+                                /*wheel_speed_indices=*/{},
+                                /*steering_index=*/std::nullopt,
+                                /*wheelbase=*/std::nullopt,
+                                /*rear_length=*/std::nullopt);
+
+    std::vector<double> state{0.0, cfg.drift.yaw_rate_limit * 1.5};
+    safety.apply(state, cfg.normal.engage_speed - 1e-3, true);
+    assert(safety.engaged());
+    assert(std::abs(state[1]) <= cfg.normal.yaw_rate_limit + 1e-9);
+
+    safety.set_drift_enabled(true);
+    state[1] = cfg.drift.yaw_rate_limit * 1.5;
+    safety.apply(state, cfg.drift.engage_speed - 1e-3, true);
+    assert(safety.engaged());
+    assert(std::abs(state[1]) <= cfg.drift.yaw_rate_limit + 1e-9);
 }
 
 void test_vehicle_simulator_stop()
 {
-    vsim::LowSpeedSafetyConfig cfg{};
-    cfg.engage_speed        = 0.4;
-    cfg.release_speed       = 0.8;
-    cfg.yaw_rate_limit      = 0.5;
-    cfg.slip_angle_limit    = 0.35;
-    cfg.stop_speed_epsilon  = 0.05;
+    auto cfg = make_default_config();
 
     vsim::ModelInterface model{};
     model.init_fn = [](const std::vector<double>& state,
@@ -158,12 +189,7 @@ void test_vehicle_simulator_stop()
 
 void test_rk4_predictor_does_not_latch_above_engage()
 {
-    vsim::LowSpeedSafetyConfig cfg{};
-    cfg.engage_speed        = 0.4;
-    cfg.release_speed       = 0.8;
-    cfg.yaw_rate_limit      = 0.5;
-    cfg.slip_angle_limit    = 0.35;
-    cfg.stop_speed_epsilon  = 0.05;
+    auto cfg = make_default_config();
 
     vsim::LowSpeedSafety safety(
         cfg,
@@ -176,7 +202,7 @@ void test_rk4_predictor_does_not_latch_above_engage()
         /*wheelbase=*/std::nullopt,
         /*rear_length=*/std::nullopt);
 
-    const double target_speed = cfg.engage_speed + 0.005;
+    const double target_speed = cfg.normal.engage_speed + 0.005;
     const double rate         = 0.1;
 
     vsim::ModelInterface model{};
@@ -209,7 +235,7 @@ void test_rk4_predictor_does_not_latch_above_engage()
     const auto& state = simulator.step(std::vector<double>{0.0, 0.0});
     const double realized_speed = simulator.speed();
 
-    assert(realized_speed > cfg.engage_speed);
+    assert(realized_speed > cfg.normal.engage_speed);
     assert(!simulator.safety().engaged());
     assert(std::abs(state[1] - initial_state[1]) < 1e-12);
     assert(std::abs(state[2] - initial_state[2]) < 1e-12);
@@ -219,12 +245,7 @@ void test_rk4_predictor_does_not_latch_above_engage()
 
 void test_std_predictor_wheel_speeds_zeroed_when_engaged()
 {
-    vsim::LowSpeedSafetyConfig cfg{};
-    cfg.engage_speed        = 0.4;
-    cfg.release_speed       = 0.8;
-    cfg.yaw_rate_limit      = 0.5;
-    cfg.slip_angle_limit    = 0.35;
-    cfg.stop_speed_epsilon  = 0.05;
+    auto cfg = make_default_config();
 
     velox::models::VehicleParameters params{};
     params.a = 1.4;
@@ -245,13 +266,13 @@ void test_std_predictor_wheel_speeds_zeroed_when_engaged()
     state[7] = 0.04;
     state[8] = 0.02;
 
-    const double disengaged_speed = cfg.engage_speed + 0.05;
+    const double disengaged_speed = cfg.normal.engage_speed + 0.05;
     safety.apply(state, disengaged_speed, true);
     assert(!safety.engaged());
     assert(state[7] > 0.0);
     assert(state[8] > 0.0);
 
-    const double engaged_speed = cfg.engage_speed - 1e-3;
+    const double engaged_speed = cfg.normal.engage_speed - 1e-3;
     safety.apply(state, engaged_speed, true);
     assert(safety.engaged());
     assert(state[7] == 0.0);
@@ -272,12 +293,7 @@ void test_std_predictor_wheel_speeds_zeroed_when_engaged()
 
 void test_mb_predictor_wheel_speeds_zeroed_when_engaged()
 {
-    vsim::LowSpeedSafetyConfig cfg{};
-    cfg.engage_speed        = 0.4;
-    cfg.release_speed       = 0.8;
-    cfg.yaw_rate_limit      = 0.5;
-    cfg.slip_angle_limit    = 0.35;
-    cfg.stop_speed_epsilon  = 0.05;
+    auto cfg = make_default_config();
 
     velox::models::VehicleParameters params{};
     params.a = 1.4;
@@ -300,7 +316,7 @@ void test_mb_predictor_wheel_speeds_zeroed_when_engaged()
     state[25] = 0.02;
     state[26] = 0.01;
 
-    const double disengaged_speed = cfg.engage_speed + 0.05;
+    const double disengaged_speed = cfg.normal.engage_speed + 0.05;
     safety.apply(state, disengaged_speed, true);
     assert(!safety.engaged());
     assert(state[23] > 0.0);
@@ -308,7 +324,7 @@ void test_mb_predictor_wheel_speeds_zeroed_when_engaged()
     assert(state[25] > 0.0);
     assert(state[26] > 0.0);
 
-    const double engaged_speed = cfg.engage_speed - 1e-3;
+    const double engaged_speed = cfg.normal.engage_speed - 1e-3;
     safety.apply(state, engaged_speed, true);
     assert(safety.engaged());
     for (int idx : {23, 24, 25, 26}) {
@@ -339,13 +355,16 @@ void test_model_specific_config_loading()
     const auto mb_cfg  = configs.load_low_speed_safety_config(vsim::ModelType::MB);
     const auto st_cfg  = configs.load_low_speed_safety_config(vsim::ModelType::ST);
 
-    assert(std::abs(std_cfg.release_speed - 0.8) < 1e-9);
-    assert(std::abs(std_cfg.engage_speed - 0.4) < 1e-9);
-    assert(std::abs(mb_cfg.release_speed - 0.6) < 1e-9);
-    assert(std::abs(mb_cfg.engage_speed - 0.35) < 1e-9);
-    assert(std::abs(mb_cfg.yaw_rate_limit - 0.7) < 1e-9);
-    assert(std::abs(mb_cfg.slip_angle_limit - 0.5) < 1e-9);
-    assert(std::abs(st_cfg.release_speed - default_cfg.release_speed) < 1e-9);
+    assert(std::abs(std_cfg.normal.release_speed - 0.8) < 1e-9);
+    assert(std::abs(std_cfg.normal.engage_speed - 0.4) < 1e-9);
+    assert(std::abs(mb_cfg.normal.release_speed - 0.6) < 1e-9);
+    assert(std::abs(mb_cfg.normal.engage_speed - 0.35) < 1e-9);
+    assert(std::abs(mb_cfg.normal.yaw_rate_limit - 0.7) < 1e-9);
+    assert(std::abs(mb_cfg.normal.slip_angle_limit - 0.5) < 1e-9);
+    assert(std::abs(st_cfg.normal.release_speed - default_cfg.normal.release_speed) < 1e-9);
+    assert(!default_cfg.drift_enabled);
+    assert(std_cfg.drift_enabled);
+    assert(!mb_cfg.drift_enabled);
 }
 
 void test_mb_latch_releases_after_acceleration()
@@ -408,6 +427,7 @@ int main()
     try {
         test_wheel_speed_clamp();
         test_latch_release_thresholds();
+        test_drift_profile_selection();
         test_vehicle_simulator_stop();
         test_rk4_predictor_does_not_latch_above_engage();
         test_std_predictor_wheel_speeds_zeroed_when_engaged();

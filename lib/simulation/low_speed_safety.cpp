@@ -2,28 +2,42 @@
 
 #include <algorithm>
 #include <cmath>
+#include <sstream>
 #include <stdexcept>
+#include <string_view>
 
 #include "common/errors.hpp"
 namespace velox::simulation {
 
-void LowSpeedSafetyConfig::validate() const
+void LowSpeedSafetyProfile::validate(const char* name) const
 {
+    const auto error = [name](std::string_view field, std::string_view msg) {
+        std::ostringstream oss;
+        oss << name << "." << field << " " << msg;
+        return ::velox::errors::ConfigError(VELOX_LOC(oss.str()));
+    };
+
     if (engage_speed < 0.0) {
-        throw ::velox::errors::ConfigError(VELOX_LOC("engage_speed must be non-negative"));
+        throw error("engage_speed", "must be non-negative");
     }
     if (release_speed <= 0.0) {
-        throw ::velox::errors::ConfigError(VELOX_LOC("release_speed must be positive"));
+        throw error("release_speed", "must be positive");
     }
     if (release_speed < engage_speed) {
-        throw ::velox::errors::ConfigError(VELOX_LOC("release_speed must be >= engage_speed"));
+        throw error("release_speed", "must be >= engage_speed");
     }
     if (yaw_rate_limit <= 0.0) {
-        throw ::velox::errors::ConfigError(VELOX_LOC("yaw_rate_limit must be positive"));
+        throw error("yaw_rate_limit", "must be positive");
     }
     if (slip_angle_limit <= 0.0) {
-        throw ::velox::errors::ConfigError(VELOX_LOC("slip_angle_limit must be positive"));
+        throw error("slip_angle_limit", "must be positive");
     }
+}
+
+void LowSpeedSafetyConfig::validate() const
+{
+    normal.validate("normal");
+    drift.validate("drift");
     if (stop_speed_epsilon < 0.0) {
         throw ::velox::errors::ConfigError(VELOX_LOC("stop_speed_epsilon must be non-negative"));
     }
@@ -49,6 +63,7 @@ LowSpeedSafety::LowSpeedSafety(const LowSpeedSafetyConfig& config,
     , rear_length_(rear_length)
 {
     config_.validate();
+    drift_enabled_ = config_.drift_enabled;
 }
 
 void LowSpeedSafety::reset()
@@ -58,13 +73,15 @@ void LowSpeedSafety::reset()
 
 void LowSpeedSafety::apply(std::vector<double>& state, double speed, bool update_latch)
 {
+    const auto& profile = config_.active_profile(drift_enabled_);
+
     if (update_latch) {
         if (engaged_) {
-            if (speed > config_.release_speed) {
+            if (speed > profile.release_speed) {
                 engaged_ = false;
             }
         } else {
-            if (speed < config_.engage_speed) {
+            if (speed < profile.engage_speed) {
                 engaged_ = true;
             }
         }
@@ -89,11 +106,11 @@ void LowSpeedSafety::apply(std::vector<double>& state, double speed, bool update
     if (yaw_rate_index_ && index_in_bounds(*yaw_rate_index_, state)) {
         const std::size_t idx = static_cast<std::size_t>(*yaw_rate_index_);
         if (latch_active) {
-            const double limit = config_.yaw_rate_limit;
+            const double limit = profile.yaw_rate_limit;
             const double target = yaw_target.value_or(0.0);
             state[idx] = clamp(target, -limit, limit);
         } else {
-            const double limit = config_.yaw_rate_limit;
+            const double limit = profile.yaw_rate_limit;
             state[idx] = clamp(state[idx], -limit, limit);
         }
     }
@@ -116,11 +133,11 @@ void LowSpeedSafety::apply(std::vector<double>& state, double speed, bool update
     if (slip_index_ && index_in_bounds(*slip_index_, state)) {
         const std::size_t idx = static_cast<std::size_t>(*slip_index_);
         if (latch_active) {
-            const double limit = config_.slip_angle_limit;
+            const double limit = profile.slip_angle_limit;
             const double target = slip_target.value_or(0.0);
             state[idx] = clamp(target, -limit, limit);
         } else {
-            const double limit = config_.slip_angle_limit;
+            const double limit = profile.slip_angle_limit;
             state[idx] = clamp(state[idx], -limit, limit);
         }
     }
