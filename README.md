@@ -25,7 +25,8 @@ A lightweight C++17/20 port of the CommonRoad vehicle models with a small SDL/Im
 - `telemetry()` exposes the last computed telemetry payload for callers that are not stepping every frame (e.g., render-only threads).
 
 ### User input and timing
-- `UserInput` encodes throttle/brake, steering nudge, gear selection, requested timestep `dt`, and the caller’s timestamp. The helper `clamped()` validates input and constrains it using `UserInputLimits` (defaults are exported as `kDefaultUserInputLimits`).
+- `UserInput` encodes throttle/brake, steering nudge, drift toggles, requested timestep `dt`, and the caller’s timestamp. The helper `clamped()` validates input and constrains it using `UserInputLimits` (defaults are exported as `kDefaultUserInputLimits`).
+- Transmission/gear selection is intentionally kept out of the daemon inputs; if an ICE powertrain is added later, model it via a dedicated powertrain control block rather than exposing gearbox state directly.
 - `ModelTiming` uses per-model `ModelTimingInfo` (`nominal_dt`, `max_dt`) to sub-divide large requested steps and clamp unstable `dt` requests to a safe minimum (`kMinStableDt`). `SimulationDaemon` applies the same scheduling internally, so hosts should pass their requested `dt` and optionally surface any clamping/sub-stepping to users.
 
 ### Telemetry schema
@@ -33,6 +34,7 @@ The daemon reports a `telemetry::SimulationTelemetry` struct on every step:
 - `pose` – world-frame `x`, `y`, and `yaw`.
 - `velocity` – scalar speed plus longitudinal, lateral, yaw-rate, and global-frame components.
 - `acceleration` – longitudinal and lateral accelerations.
+- `traction` – slip angle metrics, lateral force saturation, and the drift-mode flag reported by the safety system.
 - `steering` – desired/actual angles and rates after steering filtering.
 - `controller` – commanded acceleration, throttle/brake blending, and longitudinal force breakdown.
 - `powertrain` – drive/regen torque, mechanical vs. battery power, and SOC estimates.
@@ -70,7 +72,6 @@ Targets:
 
 - **Throttle/Brake**: `W`/`↑` for throttle, `S`/`↓` for proportional braking (scaled by “Keyboard brake bias”), `Space` for full braking.
 - **Steering**: `A`/`←` left, `D`/`→` right.
-- **Gear**: `1`=Park, `2`=Reverse, `3`=Neutral, `4`=Drive.
 - **Reset**: `R` resets the simulator to the current model/vehicle; `Esc` quits.
 
 The demo now relies exclusively on `SimulationDaemon`: all controller wiring, timing sub-steps, telemetry accumulation, and safety enforcement flow through the daemon, mirroring how legacy apps can migrate to the library.

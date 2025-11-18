@@ -87,15 +87,6 @@ void UserInput::validate(const UserInputLimits& limits) const
         require_in_range(*drift_toggle, "drift_toggle", limits.min_drift_toggle, limits.max_drift_toggle);
     }
 
-    switch (gear) {
-        case GearSelection::Park:
-        case GearSelection::Reverse:
-        case GearSelection::Neutral:
-        case GearSelection::Drive:
-            break;
-        default:
-            throw ::velox::errors::InputError(VELOX_LOC("UserInput.gear set to unknown value"));
-    }
 }
 
 namespace {

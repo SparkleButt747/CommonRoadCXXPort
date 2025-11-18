@@ -17,13 +17,6 @@
 
 namespace velox::simulation {
 
-enum class GearSelection {
-    Park,
-    Reverse,
-    Neutral,
-    Drive,
-};
-
 struct UserInputLimits {
     double min_throttle{0.0};
     double max_throttle{1.0};
@@ -39,13 +32,16 @@ struct UserInput {
     controllers::longitudinal::DriverIntent longitudinal{};
     double                                  steering_nudge = 0.0;
     std::optional<double>                   drift_toggle{};
-    GearSelection                           gear{GearSelection::Drive};
     double                                  timestamp{0.0};
     double                                  dt{0.0};
 
     [[nodiscard]] UserInput clamped(const UserInputLimits& limits = {}) const;
     void validate(const UserInputLimits& limits = {}) const;
 };
+
+// Transmission/gear inputs are intentionally omitted to keep the interface EV-first.
+// If an ICE powertrain is added in the future, prefer introducing a separate
+// powertrain control block rather than surfacing raw gearbox state here.
 
 inline constexpr UserInputLimits kDefaultUserInputLimits{};
 

@@ -225,6 +225,19 @@ if(BUILD_VELOX_TESTS)
     )
     add_test(NAME test_header_modules COMMAND test_header_modules)
 
+    add_executable(test_public_api_no_gears
+        tests/test_public_api_no_gears.cpp
+    )
+    target_include_directories(test_public_api_no_gears
+        PRIVATE
+            ${VELOX_LIB_DIR}
+    )
+    target_compile_definitions(test_public_api_no_gears
+        PRIVATE
+            VELOX_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    )
+    add_test(NAME test_public_api_no_gears COMMAND test_public_api_no_gears)
+
     add_executable(test_derivatives
         tests/test_derivatives.cpp
     )
@@ -350,6 +363,15 @@ if(BUILD_VELOX_TESTS)
             velox
     )
     add_test(NAME test_telemetry_drift_metrics COMMAND test_telemetry_drift_metrics)
+
+    add_executable(test_telemetry_drift_toggle
+        tests/test_telemetry_drift_toggle.cpp
+    )
+    target_link_libraries(test_telemetry_drift_toggle
+        PRIVATE
+            velox
+    )
+    add_test(NAME test_telemetry_drift_toggle COMMAND test_telemetry_drift_toggle)
 
     add_executable(test_simulation_daemon
         tests/test_simulation_daemon.cpp
