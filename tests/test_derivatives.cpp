@@ -238,7 +238,6 @@ int main()
 {
     try {
         auto p2 = vm::parameters_vehicle2();
-        auto p4 = vm::parameters_vehicle4();
 
         const double g       = 9.81;
         const double v_delta = 0.15;

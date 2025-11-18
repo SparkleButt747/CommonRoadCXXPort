@@ -88,6 +88,7 @@ void LowSpeedSafety::apply(std::vector<double>& state, double speed, bool update
     }
 
     const bool latch_active = engaged_;
+    const bool drift_mode   = drift_enabled_;
 
     const auto yaw_target = kinematic_yaw_rate(state, speed);
     const auto slip_target = kinematic_slip(state, speed);
@@ -105,13 +106,14 @@ void LowSpeedSafety::apply(std::vector<double>& state, double speed, bool update
 
     if (yaw_rate_index_ && index_in_bounds(*yaw_rate_index_, state)) {
         const std::size_t idx = static_cast<std::size_t>(*yaw_rate_index_);
+        const bool         allow_unclamped = drift_mode && !latch_active;
         if (latch_active) {
-            const double limit = profile.yaw_rate_limit;
+            const double limit  = profile.yaw_rate_limit;
             const double target = yaw_target.value_or(0.0);
-            state[idx] = clamp(target, -limit, limit);
-        } else {
+            state[idx]          = clamp(target, -limit, limit);
+        } else if (!allow_unclamped) {
             const double limit = profile.yaw_rate_limit;
-            state[idx] = clamp(state[idx], -limit, limit);
+            state[idx]         = clamp(state[idx], -limit, limit);
         }
     }
 
@@ -132,13 +134,14 @@ void LowSpeedSafety::apply(std::vector<double>& state, double speed, bool update
 
     if (slip_index_ && index_in_bounds(*slip_index_, state)) {
         const std::size_t idx = static_cast<std::size_t>(*slip_index_);
+        const bool         allow_unclamped = drift_mode && !latch_active;
         if (latch_active) {
-            const double limit = profile.slip_angle_limit;
+            const double limit  = profile.slip_angle_limit;
             const double target = slip_target.value_or(0.0);
-            state[idx] = clamp(target, -limit, limit);
-        } else {
+            state[idx]          = clamp(target, -limit, limit);
+        } else if (!allow_unclamped) {
             const double limit = profile.slip_angle_limit;
-            state[idx] = clamp(state[idx], -limit, limit);
+            state[idx]         = clamp(state[idx], -limit, limit);
         }
     }
 
