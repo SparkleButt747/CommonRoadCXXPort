@@ -66,6 +66,7 @@ private:
     std::optional<double> kinematic_yaw_rate(const std::vector<double>& state, double speed) const;
     std::optional<double> kinematic_slip(const std::vector<double>& state, double speed) const;
     std::optional<double> kinematic_lateral_velocity(const std::vector<double>& state, double speed) const;
+    std::optional<double> velocity_slip(const std::vector<double>& state) const;
 };
 
 } // namespace velox::simulation

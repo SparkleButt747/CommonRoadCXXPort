@@ -1,6 +1,7 @@
 import math
 import pathlib
 import sys
+from dataclasses import replace
 from types import SimpleNamespace
 from typing import Iterable, List, Sequence, Tuple
 
@@ -389,3 +390,61 @@ def test_rk4_predictor_does_not_latch_above_engage_speed() -> None:
     assert abs(slip - initial_state[2]) < 1e-12
     assert yaw_rate > 0.0
     assert slip > 0.0
+
+
+def test_drift_brake_full_lock_settles_without_spin() -> None:
+    params = parameters_vehicle2()
+    cfg = replace(_load_low_speed_cfg(), drift_enabled=True)
+    profile = _active_profile(cfg)
+    safety = LowSpeedSafety(
+        cfg,
+        longitudinal_index=3,
+        yaw_rate_index=5,
+        slip_index=6,
+        steering_index=2,
+        wheelbase=float(params.a + params.b),
+        rear_length=float(params.b),
+    )
+
+    model = ModelInterface(
+        init_fn=lambda state, vehicle_params: init_std(list(state), vehicle_params),
+        dynamics_fn=vehicle_dynamics_std,
+        speed_fn=_speed_single_track,
+    )
+
+    dt = 0.01
+    simulator = VehicleSimulator(model, params, dt=dt, safety=safety)
+    lock_angle = math.radians(32.0)
+    start_speed = 8.0
+    simulator.reset([0.0, 0.0, lock_angle, start_speed, 0.0, 0.0, 0.0])
+
+    brake = -6.0
+    steps = int(3.0 / dt)
+
+    yaw_rates: List[float] = []
+    slips: List[float] = []
+    speeds: List[float] = []
+    for _ in range(steps):
+        state = simulator.step((0.0, brake))
+        yaw_rates.append(state[5])
+        slips.append(state[6])
+        speeds.append(simulator.speed())
+
+    assert speeds, "simulation produced no samples"
+    assert max(speeds) > profile.release_speed
+
+    try:
+        latch_start = next(i for i, v in enumerate(speeds) if v < profile.engage_speed)
+    except StopIteration:
+        raise AssertionError("latch never engaged during braking")
+
+    tail_yaw = yaw_rates[latch_start:]
+    tail_slip = slips[latch_start:]
+
+    window = int(0.5 / dt)
+    final_yaw = tail_yaw[-window:]
+    final_slip = tail_slip[-window:]
+
+    assert max(abs(v) for v in final_yaw) < 0.25
+    assert sum(abs(v) for v in final_yaw) / len(final_yaw) < 0.05
+    assert max(abs(v) for v in final_slip) < cfg.drift.slip_angle_limit

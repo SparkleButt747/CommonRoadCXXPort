@@ -102,7 +102,8 @@ class LowSpeedSafety:
         """Clamp unstable states when operating near standstill."""
 
         profile = self.config.drift if self._drift_enabled else self.config.normal
-        
+        stop_eps = self.config.stop_speed_epsilon
+
         if update_latch:
             if self._engaged:
                 if speed > profile.release_speed:
@@ -115,7 +116,12 @@ class LowSpeedSafety:
         slip_target = self._kinematic_slip(state, speed)
         lateral_target = self._kinematic_lateral_velocity(state, speed)
 
-        stop_eps = self.config.stop_speed_epsilon
+        if self._engaged and speed <= stop_eps:
+            beta_ref = self._velocity_slip(state)
+            beta_ref = 0.0 if beta_ref is None else beta_ref
+            yaw_target = 0.0
+            slip_target = beta_ref
+            lateral_target = speed * math.sin(beta_ref)
 
         if self._longitudinal_index is not None:
             idx = self._longitudinal_index
@@ -158,11 +164,14 @@ class LowSpeedSafety:
                 state[idx] = max(-limit, min(limit, float(state[idx])))
 
         if self._wheel_speed_indices:
+            wheel_stage_latch = self._engaged or (
+                not update_latch and speed < profile.engage_speed
+            )
             for idx in self._wheel_speed_indices:
                 value = float(state[idx])
                 if value <= 0.0:
                     state[idx] = 0.0
-                elif self._engaged and value <= stop_eps:
+                elif wheel_stage_latch and value <= stop_eps:
                     state[idx] = 0.0
 
 
@@ -201,6 +210,20 @@ class LowSpeedSafety:
         if beta is None:
             return None
         return speed * math.sin(beta)
+
+    def _velocity_slip(self, state: Sequence[float]) -> Optional[float]:
+        if self._longitudinal_index is None or self._lateral_index is None:
+            return None
+        long_idx = self._longitudinal_index
+        lat_idx = self._lateral_index
+        if long_idx >= len(state) or lat_idx >= len(state):
+            return None
+
+        longitudinal = float(state[long_idx])
+        lateral = float(state[lat_idx])
+        if abs(longitudinal) <= 1e-9 and abs(lateral) <= 1e-9:
+            return 0.0
+        return math.atan2(lateral, longitudinal)
 
 
 __all__ = ["LowSpeedSafetyProfile", "LowSpeedSafetyConfig", "LowSpeedSafety"]

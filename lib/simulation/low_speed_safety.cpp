@@ -90,9 +90,16 @@ void LowSpeedSafety::apply(std::vector<double>& state, double speed, bool update
     const bool latch_active = engaged_;
     const bool drift_mode   = drift_enabled_;
 
-    const auto yaw_target = kinematic_yaw_rate(state, speed);
-    const auto slip_target = kinematic_slip(state, speed);
-    const auto lateral_target = kinematic_lateral_velocity(state, speed);
+    auto yaw_target     = kinematic_yaw_rate(state, speed);
+    auto slip_target    = kinematic_slip(state, speed);
+    auto lateral_target = kinematic_lateral_velocity(state, speed);
+
+    if (latch_active && speed <= config_.stop_speed_epsilon) {
+        const double beta_ref = velocity_slip(state).value_or(0.0);
+        yaw_target            = 0.0;
+        slip_target           = beta_ref;
+        lateral_target        = speed * std::sin(beta_ref);
+    }
 
     if (longitudinal_index_ && index_in_bounds(*longitudinal_index_, state)) {
         const std::size_t idx = static_cast<std::size_t>(*longitudinal_index_);
@@ -146,6 +153,9 @@ void LowSpeedSafety::apply(std::vector<double>& state, double speed, bool update
     }
 
     if (!wheel_speed_indices_.empty()) {
+        const bool wheel_stage_latch =
+            latch_active || (!update_latch && speed < profile.engage_speed);
+
         for (int raw_idx : wheel_speed_indices_) {
             if (!index_in_bounds(raw_idx, state)) {
                 continue;
@@ -154,7 +164,7 @@ void LowSpeedSafety::apply(std::vector<double>& state, double speed, bool update
             double value = state[idx];
             if (value <= 0.0) {
                 state[idx] = 0.0;
-            } else if (latch_active && value <= config_.stop_speed_epsilon) {
+            } else if (wheel_stage_latch && value <= config_.stop_speed_epsilon) {
                 state[idx] = 0.0;
             }
         }
@@ -220,6 +230,24 @@ std::optional<double> LowSpeedSafety::kinematic_lateral_velocity(const std::vect
         return std::nullopt;
     }
     return speed * std::sin(*beta);
+}
+
+std::optional<double> LowSpeedSafety::velocity_slip(const std::vector<double>& state) const
+{
+    if (!longitudinal_index_.has_value() || !lateral_index_.has_value()) {
+        return std::nullopt;
+    }
+    if (!index_in_bounds(*longitudinal_index_, state) || !index_in_bounds(*lateral_index_, state)) {
+        return std::nullopt;
+    }
+
+    const double longitudinal = state[static_cast<std::size_t>(*longitudinal_index_)];
+    const double lateral      = state[static_cast<std::size_t>(*lateral_index_)];
+    if (std::abs(longitudinal) <= 1e-9 && std::abs(lateral) <= 1e-9) {
+        return 0.0;
+    }
+
+    return std::atan2(lateral, longitudinal);
 }
 
 } // namespace velox::simulation
