@@ -53,7 +53,7 @@ void test_wheel_speed_clamp()
     assert(safety.engaged());
     assert(state[3] >= 0.0);
     assert(state[7] == 0.0);
-    assert(std::abs(state[5]) <= cfg.yaw_rate_limit + 1e-9);
+    assert(std::abs(state[5]) <= cfg.normal.yaw_rate_limit + 1e-9);
 }
 
 void test_latch_release_thresholds()
@@ -114,6 +114,60 @@ void test_drift_profile_selection()
     safety.apply(state, cfg.drift.engage_speed - 1e-3, true);
     assert(safety.engaged());
     assert(std::abs(state[1]) <= cfg.drift.yaw_rate_limit + 1e-9);
+}
+
+void test_drift_mode_relaxes_unlatched_clamp()
+{
+    auto cfg = make_default_config();
+    cfg.drift_enabled = true;
+
+    velox::models::VehicleParameters params{};
+    params.a = 1.4;
+    params.b = 1.3;
+
+    vsim::LowSpeedSafety safety(
+        cfg,
+        /*longitudinal_index=*/3,
+        /*lateral_index=*/std::nullopt,
+        /*yaw_rate_index=*/5,
+        /*slip_index=*/6,
+        /*wheel_speed_indices=*/{},
+        /*steering_index=*/2,
+        /*wheelbase=*/params.a + params.b,
+        /*rear_length=*/params.b);
+
+    safety.set_drift_enabled(true);
+
+    const double yaw_limit  = cfg.drift.yaw_rate_limit;
+    const double slip_limit = cfg.drift.slip_angle_limit;
+    const double steering   = 0.2;
+
+    std::vector<double> state(9, 0.0);
+    state[2] = steering;
+    state[5] = yaw_limit * 1.5;
+    state[6] = slip_limit * 1.2;
+
+    const double cruising_speed = cfg.drift.release_speed + 0.5;
+    safety.apply(state, cruising_speed, true);
+
+    assert(!safety.engaged());
+    assert(state[5] > yaw_limit);
+    assert(state[6] > slip_limit);
+
+    state[5] = yaw_limit * 1.5;
+    state[6] = slip_limit * 1.2;
+
+    const double crawl_speed = cfg.drift.engage_speed - 1e-3;
+    safety.apply(state, crawl_speed, true);
+
+    const double beta = std::atan(std::tan(steering) * params.b / (params.a + params.b));
+    const double yaw_target = crawl_speed * std::cos(beta) * std::tan(steering) / (params.a + params.b);
+
+    assert(safety.engaged());
+    assert(std::abs(state[5] - yaw_target) < 1e-12);
+    assert(std::abs(state[6] - beta) < 1e-12);
+    assert(std::abs(state[5]) <= yaw_limit + 1e-9);
+    assert(std::abs(state[6]) <= slip_limit + 1e-9);
 }
 
 void test_vehicle_simulator_stop()
@@ -414,7 +468,7 @@ void test_mb_latch_releases_after_acceleration()
     bool released = false;
     for (int step = 0; step < 400; ++step) {
         simulator.step(std::vector<double>{0.0, 2.5});
-        if (!simulator.safety().engaged() && simulator.speed() >= cfg.release_speed) {
+        if (!simulator.safety().engaged() && simulator.speed() >= cfg.normal.release_speed) {
             released = true;
             break;
         }
@@ -428,6 +482,7 @@ int main()
         test_wheel_speed_clamp();
         test_latch_release_thresholds();
         test_drift_profile_selection();
+        test_drift_mode_relaxes_unlatched_clamp();
         test_vehicle_simulator_stop();
         test_rk4_predictor_does_not_latch_above_engage();
         test_std_predictor_wheel_speeds_zeroed_when_engaged();
