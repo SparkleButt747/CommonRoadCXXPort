@@ -279,6 +279,15 @@ if(BUILD_VELOX_TESTS)
     )
     add_test(NAME test_timestep_bounds COMMAND test_timestep_bounds)
 
+    add_executable(test_init_std
+        tests/test_init_std.cpp
+    )
+    target_link_libraries(test_init_std
+        PRIVATE
+            velox
+    )
+    add_test(NAME test_init_std COMMAND test_init_std)
+
     add_executable(test_config_manager
         tests/test_config_manager.cpp
     )
