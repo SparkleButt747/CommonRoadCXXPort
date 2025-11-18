@@ -29,6 +29,9 @@ UserInput UserInput::clamped(const UserInputLimits& limits) const
     copy.longitudinal.throttle = std::clamp(copy.longitudinal.throttle, limits.min_throttle, limits.max_throttle);
     copy.longitudinal.brake    = std::clamp(copy.longitudinal.brake, limits.min_brake, limits.max_brake);
     copy.steering_nudge        = std::clamp(copy.steering_nudge, limits.min_steering_nudge, limits.max_steering_nudge);
+    if (copy.drift_toggle.has_value()) {
+        copy.drift_toggle = std::clamp(*copy.drift_toggle, limits.min_drift_toggle, limits.max_drift_toggle);
+    }
     return copy;
 }
 
@@ -78,6 +81,11 @@ void UserInput::validate(const UserInputLimits& limits) const
                      "steering_nudge",
                      limits.min_steering_nudge,
                      limits.max_steering_nudge);
+
+    if (drift_toggle.has_value()) {
+        require_finite(*drift_toggle, "drift_toggle");
+        require_in_range(*drift_toggle, "drift_toggle", limits.min_drift_toggle, limits.max_drift_toggle);
+    }
 
     switch (gear) {
         case GearSelection::Park:
@@ -374,6 +382,10 @@ telemetry::SimulationTelemetry SimulationDaemon::step(const UserInput& input)
 
         auto sanitized_input = input.clamped(kDefaultUserInputLimits);
         log_clamped_input(input, sanitized_input);
+
+        if (sanitized_input.drift_toggle.has_value()) {
+            set_drift_enabled(*sanitized_input.drift_toggle >= 0.5);
+        }
 
         const auto schedule = timing_.plan_steps(sanitized_input.dt);
         log_timing_adjustments(schedule);

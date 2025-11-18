@@ -1,5 +1,6 @@
 #include "models/vehiclemodels/init_mb.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <vector>
 
@@ -10,14 +11,21 @@ namespace velox::models {
 std::vector<double> init_mb(const std::vector<double>& init_state,
                             const VehicleParameters& p)
 {
-    // obtain initial states from vector
-    const double sx0     = init_state[0];
-    const double sy0     = init_state[1];
-    const double delta0  = init_state[2];
-    const double vel0    = init_state[3];
-    const double Psi0    = init_state[4];
-    const double dotPsi0 = init_state[5];
-    const double beta0   = init_state[6];
+    // Use a padded 7-state base to avoid out-of-bounds access when callers
+    // omit values. Any extra provided entries are ignored to keep the base
+    // deterministic.
+    constexpr std::size_t kBaseSize = 7;
+    std::vector<double>   base(kBaseSize, 0.0);
+    const auto            copy = std::min(init_state.size(), base.size());
+    std::copy_n(init_state.begin(), copy, base.begin());
+
+    const double sx0     = base[0];
+    const double sy0     = base[1];
+    const double delta0  = base[2];
+    const double vel0    = base[3];
+    const double Psi0    = base[4];
+    const double dotPsi0 = base[5];
+    const double beta0   = base[6];
 
     // create equivalent bicycle parameters
     const double g = 9.81;  // [m/s^2]

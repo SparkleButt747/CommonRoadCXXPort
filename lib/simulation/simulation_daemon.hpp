@@ -31,11 +31,14 @@ struct UserInputLimits {
     double max_brake{1.0};
     double min_steering_nudge{-1.0};
     double max_steering_nudge{1.0};
+    double min_drift_toggle{0.0};
+    double max_drift_toggle{1.0};
 };
 
 struct UserInput {
     controllers::longitudinal::DriverIntent longitudinal{};
     double                                  steering_nudge = 0.0;
+    std::optional<double>                   drift_toggle{};
     GearSelection                           gear{GearSelection::Drive};
     double                                  timestamp{0.0};
     double                                  dt{0.0};

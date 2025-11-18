@@ -3,6 +3,8 @@
 #include <cmath>
 #include <vector>
 
+#include "common/errors.hpp"
+
 #include "models/acceleration_constraints.hpp"
 #include "models/steering_constraints.hpp"
 #include "models/vehicle_dynamics_ks_cog.hpp"
@@ -14,6 +16,11 @@ std::vector<double> vehicle_dynamics_st(const std::vector<double>& x,
                                         const std::vector<double>& uInit,
                                         const VehicleParameters& p)
 {
+    if (x.size() != 7 || uInit.size() != 2) {
+        throw ::velox::errors::SimulationError(
+            VELOX_LOC("vehicle_dynamics_st: expected x.size()==7 and uInit.size()==2"));
+    }
+
     // set gravity constant
     const double g = 9.81; // [m/s^2]
 

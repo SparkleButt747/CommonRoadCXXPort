@@ -1,6 +1,9 @@
 #include "models/vehiclemodels/vehicle_dynamics_kst.hpp"
 
 #include <cmath>
+
+#include "common/errors.hpp"
+
 #include "models/acceleration_constraints.hpp"
 #include "models/steering_constraints.hpp"
 
@@ -10,6 +13,11 @@ std::vector<double> vehicle_dynamics_kst(const std::vector<double>& x,
                                          const std::vector<double>& u_init,
                                          const VehicleParameters& p)
 {
+    if (x.size() != 6 || u_init.size() != 2) {
+        throw ::velox::errors::SimulationError(
+            VELOX_LOC("vehicle_dynamics_kst: expected x.size()==6 and u_init.size()==2"));
+    }
+
     // create equivalent kinematic single-track parameters
     const double l_wb  = p.a + p.b;          // wheel base
     const double l_wbt = p.trailer.l_wb;     // wheel base trailer

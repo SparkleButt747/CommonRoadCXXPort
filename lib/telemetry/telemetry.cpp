@@ -29,6 +29,13 @@ double yaw_rate_from_state(simulation::ModelType model, const std::vector<double
     return 0.0;
 }
 
+double axle_slip_angle(double v_lat, double v_long, double yaw_rate, double offset, double steer_angle = 0.0)
+{
+    const double safe_longitudinal = (std::abs(v_long) > kEpsilon) ? v_long : std::copysign(kEpsilon, v_long + kEpsilon);
+    const double lateral_velocity  = v_lat + yaw_rate * offset;
+    return std::atan2(lateral_velocity, safe_longitudinal) - steer_angle;
+}
+
 std::pair<WheelTelemetry, WheelTelemetry> build_wheels(double base_longitudinal_velocity,
                                                        double v_lat,
                                                        double yaw_rate,
@@ -163,6 +170,8 @@ SimulationTelemetry compute_simulation_telemetry(
     telemetry.velocity.global_x     = speed * std::cos(heading);
     telemetry.velocity.global_y     = speed * std::sin(heading);
 
+    telemetry.traction.slip_angle = beta;
+
     telemetry.acceleration.longitudinal = accel_output.acceleration;
     switch (model) {
         case simulation::ModelType::MB:
@@ -176,6 +185,9 @@ SimulationTelemetry compute_simulation_telemetry(
             }
             break;
     }
+
+    telemetry.traction.front_slip_angle = axle_slip_angle(v_lat, v_long, yaw_rate, params.a, steer_angle);
+    telemetry.traction.rear_slip_angle  = axle_slip_angle(v_lat, v_long, yaw_rate, -params.b);
 
     telemetry.steering.desired_angle = steering_wheel_output.target_angle;
     telemetry.steering.desired_rate  = steering_wheel_output.rate;
@@ -248,10 +260,16 @@ SimulationTelemetry compute_simulation_telemetry(
     telemetry.rear_axle.left  = rear_left;
     telemetry.rear_axle.right = rear_right;
 
+    const double total_normal      = normal_front + normal_rear;
+    const double lateral_available = std::max(params.tire.p_dy1 * total_normal, kEpsilon);
+    const double lateral_force     = params.m * telemetry.acceleration.lateral;
+    telemetry.traction.lateral_force_saturation = std::abs(lateral_force) / lateral_available;
+
     telemetry.totals.distance_traveled_m    = cumulative_distance_m;
     telemetry.totals.energy_consumed_joules = cumulative_energy_j;
     telemetry.totals.simulation_time_s      = cumulative_sim_time_s;
     telemetry.low_speed_engaged             = safety ? safety->engaged() : false;
+    telemetry.traction.drift_mode           = safety ? safety->drift_enabled() : false;
 
     return telemetry;
 }
@@ -279,6 +297,13 @@ std::string to_json(const SimulationTelemetry& telemetry)
         << "\"longitudinal\":" << telemetry.acceleration.longitudinal << ","
         << "\"lateral\":" << telemetry.acceleration.lateral << "},";
 
+    oss << "\"traction\":{"
+        << "\"slip_angle\":" << telemetry.traction.slip_angle << ","
+        << "\"front_slip_angle\":" << telemetry.traction.front_slip_angle << ","
+        << "\"rear_slip_angle\":" << telemetry.traction.rear_slip_angle << ","
+        << "\"lateral_force_saturation\":" << telemetry.traction.lateral_force_saturation << ","
+        << "\"drift_mode\":" << (telemetry.traction.drift_mode ? "true" : "false") << "},";
+
     auto write_wheel = [&oss](const char* name, const WheelTelemetry& wheel) {
         oss << '\"' << name << "\":"
             << "{\"speed\":" << wheel.speed << ","
@@ -291,7 +316,7 @@ std::string to_json(const SimulationTelemetry& telemetry)
             << "\"drive_torque\":" << axle.drive_torque << ","
             << "\"brake_torque\":" << axle.brake_torque << ","
             << "\"regen_torque\":" << axle.regen_torque << ","
-            << "\"normal_force\":" << axle.normal_force << ",";
+            << "\"normal_force\":" << axle.normal_force << ',';
         write_wheel("left", axle.left);
         oss << ',';
         write_wheel("right", axle.right);
@@ -338,6 +363,7 @@ std::string to_json(const SimulationTelemetry& telemetry)
 
     return oss.str();
 }
+
 
 } // namespace velox::telemetry
 
