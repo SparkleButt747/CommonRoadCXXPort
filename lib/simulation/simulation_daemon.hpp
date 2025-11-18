@@ -51,6 +51,7 @@ struct ResetParams {
     std::optional<int>       vehicle_id{};
     std::vector<double>      initial_state{};
     std::optional<double>    dt{};
+    std::optional<bool>      drift_enabled{};
 };
 
 struct SimulationSnapshot {
@@ -68,6 +69,7 @@ public:
         std::filesystem::path     config_root{};
         std::filesystem::path     parameter_root{};
         logging::LogSinkPtr       log_sink{};
+        std::optional<bool>       drift_enabled{};
     };
 
     explicit SimulationDaemon(const InitParams& init);
@@ -94,6 +96,8 @@ public:
     }
     [[nodiscard]] const models::VehicleParameters& vehicle_parameters() const { return params_; }
     [[nodiscard]] ModelType model() const { return model_; }
+    [[nodiscard]] bool drift_enabled() const { return drift_enabled_; }
+    void                set_drift_enabled(bool enabled);
     [[nodiscard]] const telemetry::SimulationTelemetry& telemetry() const { return last_telemetry_; }
 
     [[nodiscard]] SimulationSnapshot snapshot() const;
@@ -103,6 +107,7 @@ private:
     io::ConfigManager       configs_{};
     ModelType               model_{};
     ModelTiming             timing_{};
+    bool                    drift_enabled_{false};
 
     models::VehicleParameters                              params_{};
     ModelInterface                                          model_interface_{};
@@ -122,7 +127,7 @@ private:
 
     void load_vehicle_parameters(int vehicle_id);
     void rebuild_controllers();
-    void rebuild_safety();
+    void rebuild_safety(const LowSpeedSafetyConfig& safety_cfg);
     void rebuild_simulator(double dt, const std::vector<double>& initial_state);
     telemetry::SimulationTelemetry compute_telemetry(
         const controllers::longitudinal::ControllerOutput& accel_output,

@@ -2,19 +2,16 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import MutableSequence, Optional, Sequence
 
 
 @dataclass(frozen=True)
-class LowSpeedSafetyConfig:
-    """Configuration thresholds for engaging low-speed safeguards."""
-
+class LowSpeedSafetyProfile:
     engage_speed: float
     release_speed: float
     yaw_rate_limit: float
     slip_angle_limit: float
-    stop_speed_epsilon: float
 
     def __post_init__(self) -> None:  # type: ignore[override]
         if self.engage_speed < 0.0:
@@ -27,6 +24,24 @@ class LowSpeedSafetyConfig:
             raise ValueError("yaw_rate_limit must be positive")
         if self.slip_angle_limit <= 0.0:
             raise ValueError("slip_angle_limit must be positive")
+
+
+@dataclass(frozen=True)
+class LowSpeedSafetyConfig:
+    """Configuration thresholds for engaging low-speed safeguards."""
+
+    normal: LowSpeedSafetyProfile
+    drift: LowSpeedSafetyProfile
+    stop_speed_epsilon: float
+    drift_enabled: bool = False
+
+    def __post_init__(self) -> None:  # type: ignore[override]
+        if isinstance(self.normal, dict):
+            object.__setattr__(self, "normal", LowSpeedSafetyProfile(**self.normal))
+        if isinstance(self.drift, dict):
+            object.__setattr__(self, "drift", LowSpeedSafetyProfile(**self.drift))
+        self.normal.__class__(**asdict(self.normal))
+        self.drift.__class__(**asdict(self.drift))
         if self.stop_speed_epsilon < 0.0:
             raise ValueError("stop_speed_epsilon must be non-negative")
 
@@ -61,10 +76,18 @@ class LowSpeedSafety:
         self._wheelbase = float(wheelbase) if wheelbase is not None else None
         self._rear_length = float(rear_length) if rear_length is not None else None
         self._engaged = False
+        self._drift_enabled = bool(config.drift_enabled)
 
     @property
     def engaged(self) -> bool:
         return self._engaged
+
+    @property
+    def drift_enabled(self) -> bool:
+        return self._drift_enabled
+
+    def set_drift_enabled(self, enabled: bool) -> None:
+        self._drift_enabled = bool(enabled)
 
     def reset(self) -> None:
         self._engaged = False
@@ -78,36 +101,38 @@ class LowSpeedSafety:
     ) -> None:
         """Clamp unstable states when operating near standstill."""
 
-        cfg = self.config
-
+        profile = self.config.drift if self._drift_enabled else self.config.normal
+        
         if update_latch:
             if self._engaged:
-                if speed > cfg.release_speed:
+                if speed > profile.release_speed:
                     self._engaged = False
             else:
-                if speed < cfg.engage_speed:
+                if speed < profile.engage_speed:
                     self._engaged = True
 
         yaw_target = self._kinematic_yaw_rate(state, speed)
         slip_target = self._kinematic_slip(state, speed)
         lateral_target = self._kinematic_lateral_velocity(state, speed)
 
+        stop_eps = self.config.stop_speed_epsilon
+
         if self._longitudinal_index is not None:
             idx = self._longitudinal_index
             value = float(state[idx])
             if value < 0.0:
                 state[idx] = 0.0
-            elif abs(value) <= cfg.stop_speed_epsilon and not self._engaged:
+            elif abs(value) <= stop_eps and not self._engaged:
                 state[idx] = 0.0
 
         if self._yaw_rate_index is not None:
             idx = self._yaw_rate_index
             if self._engaged:
-                limit = cfg.yaw_rate_limit
+                limit = profile.yaw_rate_limit
                 target = 0.0 if yaw_target is None else yaw_target
                 state[idx] = max(-limit, min(limit, target))
             else:
-                limit = cfg.yaw_rate_limit
+                limit = profile.yaw_rate_limit
                 state[idx] = max(-limit, min(limit, float(state[idx])))
 
         if self._lateral_index is not None:
@@ -115,21 +140,21 @@ class LowSpeedSafety:
             value = float(state[idx])
             if self._engaged:
                 if lateral_target is None:
-                    limit = cfg.stop_speed_epsilon
+                    limit = stop_eps
                     state[idx] = max(-limit, min(limit, value))
                 else:
                     state[idx] = lateral_target
-            elif abs(value) <= cfg.stop_speed_epsilon:
+            elif abs(value) <= stop_eps:
                 state[idx] = 0.0
 
         if self._slip_index is not None:
             idx = self._slip_index
             if self._engaged:
-                limit = cfg.slip_angle_limit
+                limit = profile.slip_angle_limit
                 target = 0.0 if slip_target is None else slip_target
                 state[idx] = max(-limit, min(limit, target))
             else:
-                limit = cfg.slip_angle_limit
+                limit = profile.slip_angle_limit
                 state[idx] = max(-limit, min(limit, float(state[idx])))
 
         if self._wheel_speed_indices:
@@ -137,7 +162,7 @@ class LowSpeedSafety:
                 value = float(state[idx])
                 if value <= 0.0:
                     state[idx] = 0.0
-                elif self._engaged and value <= cfg.stop_speed_epsilon:
+                elif self._engaged and value <= stop_eps:
                     state[idx] = 0.0
 
 
@@ -178,4 +203,4 @@ class LowSpeedSafety:
         return speed * math.sin(beta)
 
 
-__all__ = ["LowSpeedSafetyConfig", "LowSpeedSafety"]
+__all__ = ["LowSpeedSafetyProfile", "LowSpeedSafetyConfig", "LowSpeedSafety"]

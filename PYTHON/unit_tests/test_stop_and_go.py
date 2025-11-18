@@ -50,6 +50,10 @@ def _load_low_speed_cfg() -> LowSpeedSafetyConfig:
     return LowSpeedSafetyConfig(**data)
 
 
+def _active_profile(cfg: LowSpeedSafetyConfig):
+    return cfg.drift if cfg.drift_enabled else cfg.normal
+
+
 def _speed_single_track(state: Sequence[float]) -> float:
     return float(state[3])
 
@@ -105,6 +109,7 @@ def _phases() -> Iterable[Tuple[float, DriverIntent]]:
 def test_stop_and_go_remains_stable() -> None:
     params = parameters_vehicle2()
     cfg = _load_low_speed_cfg()
+    profile = _active_profile(cfg)
     safety = LowSpeedSafety(
         cfg,
         longitudinal_index=3,
@@ -147,7 +152,7 @@ def test_stop_and_go_remains_stable() -> None:
     assert min_speed >= -1e-6
     assert max_speed > 1.0
 
-    engaged_samples = [idx for idx, v in enumerate(speeds) if v < cfg.engage_speed + 1e-3]
+    engaged_samples = [idx for idx, v in enumerate(speeds) if v < profile.engage_speed + 1e-3]
     assert engaged_samples, "vehicle never reached low-speed regime"
 
     wheelbase = float(params.a + params.b)
@@ -161,13 +166,14 @@ def test_stop_and_go_remains_stable() -> None:
         assert abs(yaw_rates[idx] - expected_yaw) <= tol
         assert abs(slips[idx] - beta_ref) <= tol
 
-    assert max(abs(val) for val in yaw_rates) <= cfg.yaw_rate_limit + 1e-3
-    assert max(abs(val) for val in slips) <= cfg.slip_angle_limit + 1e-3
+    assert max(abs(val) for val in yaw_rates) <= profile.yaw_rate_limit + 1e-3
+    assert max(abs(val) for val in slips) <= profile.slip_angle_limit + 1e-3
 
 
 def test_std_resumes_motion_after_full_stop() -> None:
     params = parameters_vehicle2()
     cfg = _load_low_speed_cfg()
+    profile = _active_profile(cfg)
     safety = LowSpeedSafety(
         cfg,
         longitudinal_index=3,
@@ -196,7 +202,7 @@ def test_std_resumes_motion_after_full_stop() -> None:
     states, speeds = _run_longitudinal_phases(simulator, dt, phases)
 
     assert speeds, "simulation produced no samples"
-    assert any(v < cfg.engage_speed + 1e-3 for v in speeds)
+    assert any(v < profile.engage_speed + 1e-3 for v in speeds)
     assert min(speeds) >= -1e-6
 
     accel_steps = int(phases[-1][0] / dt)
@@ -249,6 +255,7 @@ def test_std_launch_with_steering_lock_overcomes_latch() -> None:
 def test_multi_body_stays_at_rest_after_braking() -> None:
     params = parameters_vehicle2()
     cfg = _load_low_speed_cfg()
+    profile = _active_profile(cfg)
     safety = LowSpeedSafety(
         cfg,
         longitudinal_index=3,
@@ -278,7 +285,7 @@ def test_multi_body_stays_at_rest_after_braking() -> None:
     states, speeds = _run_longitudinal_phases(simulator, dt, phases)
 
     assert speeds, "simulation produced no samples"
-    assert any(v < cfg.engage_speed + 1e-3 for v in speeds)
+    assert any(v < profile.engage_speed + 1e-3 for v in speeds)
 
     hold_steps = int(phases[-1][0] / dt)
     hold_speeds = speeds[-hold_steps:]
@@ -335,6 +342,7 @@ def test_multi_body_launch_with_steering_lock_overcomes_latch() -> None:
 
 def test_rk4_predictor_does_not_latch_above_engage_speed() -> None:
     cfg = _load_low_speed_cfg()
+    profile = _active_profile(cfg)
     safety = LowSpeedSafety(
         cfg,
         longitudinal_index=0,
@@ -342,7 +350,7 @@ def test_rk4_predictor_does_not_latch_above_engage_speed() -> None:
         slip_index=2,
     )
 
-    params = SimpleNamespace(target_speed=cfg.engage_speed + 0.005, rate=0.1)
+    params = SimpleNamespace(target_speed=profile.engage_speed + 0.005, rate=0.1)
 
     def init_state(state: Sequence[float], _params: object) -> Sequence[float]:
         return list(state)
@@ -371,7 +379,7 @@ def test_rk4_predictor_does_not_latch_above_engage_speed() -> None:
     state = simulator.step((0.0, 0.0))
     realized_speed = simulator.speed()
 
-    assert realized_speed > cfg.engage_speed
+    assert realized_speed > profile.engage_speed
     assert not safety.engaged
 
     yaw_rate = state[1]

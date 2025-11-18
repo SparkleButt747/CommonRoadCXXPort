@@ -299,6 +299,9 @@ SimulationDaemon::SimulationDaemon(const InitParams& init)
 {
     load_vehicle_parameters(init.vehicle_id);
 
+    const auto initial_safety_cfg = configs_.load_low_speed_safety_config(init.model);
+    drift_enabled_                = init.drift_enabled.value_or(initial_safety_cfg.drift_enabled);
+
     // Initial wiring occurs during construction
     const auto default_state = build_model_interface(model_).init_fn({}, params_);
     ResetParams reset_params{};
@@ -310,6 +313,7 @@ SimulationDaemon::SimulationDaemon(const InitParams& init)
 void SimulationDaemon::reset(const ResetParams& params)
 {
     try {
+        const bool model_changed = params.model && (*params.model != model_);
         if (params.model) {
             model_ = *params.model;
         }
@@ -322,7 +326,15 @@ void SimulationDaemon::reset(const ResetParams& params)
         model_interface_ = build_model_interface(model_);
 
         rebuild_controllers();
-        rebuild_safety();
+
+        const auto safety_cfg = configs_.load_low_speed_safety_config(model_);
+        if (params.drift_enabled.has_value()) {
+            drift_enabled_ = *params.drift_enabled;
+        } else if (!safety_ || model_changed) {
+            drift_enabled_ = safety_cfg.drift_enabled;
+        }
+        init_.drift_enabled = drift_enabled_;
+        rebuild_safety(safety_cfg);
 
         const double initial_request = params.dt.value_or(timing_.info().nominal_dt);
         const auto   schedule        = timing_.plan_steps(initial_request);
@@ -399,6 +411,17 @@ telemetry::SimulationTelemetry SimulationDaemon::step(const UserInput& input)
     }
 }
 
+void SimulationDaemon::set_drift_enabled(bool enabled)
+{
+    drift_enabled_ = enabled;
+    if (safety_) {
+        safety_->set_drift_enabled(enabled);
+    }
+    if (simulator_) {
+        simulator_->safety().set_drift_enabled(enabled);
+    }
+}
+
 std::vector<telemetry::SimulationTelemetry> SimulationDaemon::step(const std::vector<UserInput>& batch_inputs)
 {
     std::vector<telemetry::SimulationTelemetry> telemetry;
@@ -447,10 +470,10 @@ void SimulationDaemon::rebuild_controllers()
                               accel_controller);
 }
 
-void SimulationDaemon::rebuild_safety()
+void SimulationDaemon::rebuild_safety(const LowSpeedSafetyConfig& safety_cfg)
 {
-    const auto safety_cfg = configs_.load_low_speed_safety_config(model_);
     safety_.emplace(build_low_speed_safety(model_, params_, safety_cfg));
+    safety_->set_drift_enabled(drift_enabled_);
 }
 
 void SimulationDaemon::rebuild_simulator(double dt, const std::vector<double>& initial_state)
@@ -460,6 +483,7 @@ void SimulationDaemon::rebuild_simulator(double dt, const std::vector<double>& i
     }
     simulator_ = std::make_unique<VehicleSimulator>(model_interface_, params_, dt, *safety_);
     simulator_->reset(initial_state);
+    simulator_->safety().set_drift_enabled(drift_enabled_);
 }
 
 telemetry::SimulationTelemetry SimulationDaemon::compute_telemetry(
