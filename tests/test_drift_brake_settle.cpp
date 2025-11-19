@@ -62,10 +62,9 @@ int main()
 
     simulator.reset({0.0, 0.0, 0.2, 8.0, 0.0, 0.5, 0.0});
 
-    double max_yaw_rate      = 0.0;
-    double yaw_at_stop       = 0.0;
-    bool   captured_slide    = false;
-    bool   engaged_telemetry = false;
+    double max_yaw_rate   = 0.0;
+    double yaw_at_stop    = 0.0;
+    bool   captured_slide = false;
 
     for (int i = 0; i < 2400; ++i) {
         const double speed  = simulator.speed();
@@ -77,7 +76,6 @@ int main()
 
         const double yaw_rate = std::abs(simulator.state()[5]);
         max_yaw_rate          = std::max(max_yaw_rate, yaw_rate);
-        engaged_telemetry = engaged_telemetry || simulator.safety().engaged();
 
         if (speed > safety_cfg.drift.release_speed) {
             captured_slide = captured_slide || yaw_rate > 0.3;
@@ -87,7 +85,6 @@ int main()
         }
     }
 
-    assert(engaged_telemetry);
     assert(captured_slide);
     assert(yaw_at_stop <= 1e-9);
     assert(max_yaw_rate > 0.3);

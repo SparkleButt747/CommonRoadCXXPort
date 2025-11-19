@@ -67,6 +67,8 @@ private:
     std::optional<double> kinematic_slip(const std::vector<double>& state, double speed) const;
     std::optional<double> kinematic_lateral_velocity(const std::vector<double>& state, double speed) const;
     std::optional<double> velocity_slip(const std::vector<double>& state) const;
+    double                pre_latch_blend(double speed, const LowSpeedSafetyProfile& profile) const;
+    double                scaled_limit(double limit, double speed, const LowSpeedSafetyProfile& profile) const;
 };
 
 } // namespace velox::simulation

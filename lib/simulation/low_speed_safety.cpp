@@ -90,6 +90,7 @@ void LowSpeedSafety::apply(std::vector<double>& state, double speed, bool update
     const bool latch_active = engaged_;
     const bool drift_mode   = drift_enabled_;
     const bool near_stop    = std::abs(speed) <= config_.stop_speed_epsilon;
+    const double transition_blend = pre_latch_blend(speed, profile);
 
     auto yaw_target       = kinematic_yaw_rate(state, speed);
     auto slip_target      = kinematic_slip(state, speed);
@@ -121,14 +122,19 @@ void LowSpeedSafety::apply(std::vector<double>& state, double speed, bool update
 
     if (yaw_rate_index_ && index_in_bounds(*yaw_rate_index_, state)) {
         const std::size_t idx = static_cast<std::size_t>(*yaw_rate_index_);
-        const bool         allow_unclamped = drift_mode && !latch_active;
+        const bool         allow_unclamped = drift_mode && !latch_active && transition_blend <= 0.0;
         if (latch_active) {
             const double limit  = profile.yaw_rate_limit;
             const double target = yaw_target.value_or(0.0);
             state[idx]          = clamp(target, -limit, limit);
         } else if (!allow_unclamped) {
-            const double limit = profile.yaw_rate_limit;
-            state[idx]         = clamp(state[idx], -limit, limit);
+            double limit = scaled_limit(profile.yaw_rate_limit, speed, profile);
+            double value = clamp(state[idx], -limit, limit);
+            if (transition_blend > 0.0 && yaw_target.has_value()) {
+                const double target = clamp(*yaw_target, -limit, limit);
+                value = (1.0 - transition_blend) * value + transition_blend * target;
+            }
+            state[idx] = value;
         }
     }
 
@@ -149,19 +155,27 @@ void LowSpeedSafety::apply(std::vector<double>& state, double speed, bool update
 
     if (slip_index_ && index_in_bounds(*slip_index_, state)) {
         const std::size_t idx = static_cast<std::size_t>(*slip_index_);
-        const bool         allow_unclamped = drift_mode && !latch_active;
+        const bool         allow_unclamped = drift_mode && !latch_active && transition_blend <= 0.0;
         if (latch_active) {
             const double limit  = profile.slip_angle_limit;
             const double target = slip_target.value_or(0.0);
             state[idx]          = clamp(target, -limit, limit);
         } else if (!allow_unclamped) {
-            const double limit = profile.slip_angle_limit;
-            state[idx]         = clamp(state[idx], -limit, limit);
+            double limit = scaled_limit(profile.slip_angle_limit, speed, profile);
+            double value = clamp(state[idx], -limit, limit);
+            double target = 0.0;
+            if (velocity_heading.has_value() && !near_stop) {
+                target = clamp(*velocity_heading, -limit, limit);
+            }
+            if (transition_blend > 0.0) {
+                value = (1.0 - transition_blend) * value + transition_blend * target;
+            }
+            state[idx] = value;
         }
     }
 
     if (!wheel_speed_indices_.empty()) {
-        const bool wheel_stage_latch = latch_active || speed < profile.engage_speed;
+        const bool wheel_stage_latch = latch_active || speed < profile.engage_speed || transition_blend > 0.0;
 
         for (int raw_idx : wheel_speed_indices_) {
             if (!index_in_bounds(raw_idx, state)) {
@@ -242,6 +256,9 @@ std::optional<double> LowSpeedSafety::kinematic_lateral_velocity(const std::vect
 std::optional<double> LowSpeedSafety::velocity_slip(const std::vector<double>& state) const
 {
     if (!longitudinal_index_.has_value() || !lateral_index_.has_value()) {
+        if (slip_index_.has_value() && index_in_bounds(*slip_index_, state)) {
+            return state[static_cast<std::size_t>(*slip_index_)];
+        }
         return std::nullopt;
     }
     if (!index_in_bounds(*longitudinal_index_, state) || !index_in_bounds(*lateral_index_, state)) {
@@ -255,6 +272,31 @@ std::optional<double> LowSpeedSafety::velocity_slip(const std::vector<double>& s
     }
 
     return std::atan2(lateral, longitudinal);
+}
+
+double LowSpeedSafety::pre_latch_blend(double speed, const LowSpeedSafetyProfile& profile) const
+{
+    const double band   = std::max(profile.release_speed - profile.engage_speed, 0.0);
+    const double upper  = profile.release_speed + band;
+    const double lower  = profile.release_speed;
+    if (upper <= lower || speed >= upper) {
+        return 0.0;
+    }
+    if (speed <= lower) {
+        return 1.0;
+    }
+    const double ratio = (upper - speed) / (upper - lower);
+    return std::clamp(ratio, 0.0, 1.0);
+}
+
+double LowSpeedSafety::scaled_limit(double limit, double speed, const LowSpeedSafetyProfile& profile) const
+{
+    if (speed >= profile.release_speed || profile.release_speed <= 0.0) {
+        return limit;
+    }
+    const double ratio = std::clamp(speed / std::max(profile.release_speed, 1e-6), 0.0, 1.0);
+    const double min_limit = std::max(config_.stop_speed_epsilon, 1e-6);
+    return std::clamp(limit * ratio, min_limit, limit);
 }
 
 } // namespace velox::simulation

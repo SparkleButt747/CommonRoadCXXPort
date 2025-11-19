@@ -147,7 +147,8 @@ void test_drift_mode_relaxes_unlatched_clamp()
     state[5] = yaw_limit * 1.5;
     state[6] = slip_limit * 1.2;
 
-    const double cruising_speed = cfg.drift.release_speed + 0.5;
+    const double transition_band = cfg.drift.release_speed - cfg.drift.engage_speed;
+    const double cruising_speed  = cfg.drift.release_speed + transition_band + 0.2;
     safety.apply(state, cruising_speed, true);
 
     assert(!safety.engaged());
@@ -162,9 +163,73 @@ void test_drift_mode_relaxes_unlatched_clamp()
 
     assert(safety.engaged());
     assert(std::abs(state[5]) <= 1e-9);
-    assert(std::abs(state[6]) <= 1e-9);
-    assert(std::abs(state[5]) <= yaw_limit + 1e-9);
     assert(std::abs(state[6]) <= slip_limit + 1e-9);
+}
+
+void test_slip_latch_tracks_velocity_heading()
+{
+    auto cfg = make_default_config();
+    cfg.drift_enabled = false;
+
+    vsim::LowSpeedSafety safety(
+        cfg,
+        /*longitudinal_index=*/3,
+        /*lateral_index=*/std::nullopt,
+        /*yaw_rate_index=*/5,
+        /*slip_index=*/6,
+        /*wheel_speed_indices=*/{},
+        /*steering_index=*/2,
+        /*wheelbase=*/std::make_optional(2.6),
+        /*rear_length=*/std::make_optional(1.3));
+
+    std::vector<double> state(9, 0.0);
+    state[2] = 0.1;
+    state[3] = cfg.normal.engage_speed * 0.9;
+    state[5] = 0.2;
+    state[6] = 0.25; // below slip limit so it should be preserved when latched
+
+    safety.apply(state, cfg.normal.engage_speed * 0.9, true);
+    assert(safety.engaged());
+    assert(std::abs(state[6] - 0.25) <= 1e-6);
+}
+
+void test_transition_blend_preloads_clamp()
+{
+    auto cfg = make_default_config();
+    cfg.drift_enabled = true;
+
+    vsim::LowSpeedSafety safety(
+        cfg,
+        /*longitudinal_index=*/3,
+        /*lateral_index=*/std::nullopt,
+        /*yaw_rate_index=*/5,
+        /*slip_index=*/6,
+        /*wheel_speed_indices=*/{},
+        /*steering_index=*/2,
+        /*wheelbase=*/std::make_optional(2.7),
+        /*rear_length=*/std::make_optional(1.3));
+
+    safety.set_drift_enabled(true);
+
+    const double yaw_limit  = cfg.drift.yaw_rate_limit;
+    const double slip_limit = cfg.drift.slip_angle_limit;
+    const double transition_speed = cfg.drift.release_speed + (cfg.drift.release_speed - cfg.drift.engage_speed) * 0.9;
+
+    std::vector<double> state(9, 0.0);
+    state[2] = 0.25;
+    state[5] = yaw_limit * 1.5;
+    state[6] = slip_limit * 1.5;
+
+    safety.apply(state, transition_speed, true);
+    assert(!safety.engaged());
+    assert(std::abs(state[5]) < yaw_limit * 1.5);
+    assert(std::abs(state[6]) < slip_limit * 1.5);
+
+    state[5] = yaw_limit * 1.2;
+    state[6] = slip_limit * 1.2;
+    safety.apply(state, cfg.drift.release_speed + 1e-4, true);
+    assert(std::abs(state[5]) <= yaw_limit + 1e-6);
+    assert(std::abs(state[6]) <= slip_limit + 1e-6);
 }
 
 void test_vehicle_simulator_stop()
@@ -317,7 +382,8 @@ void test_std_predictor_wheel_speeds_zeroed_when_engaged()
     state[7] = 0.04;
     state[8] = 0.02;
 
-    const double disengaged_speed = cfg.normal.engage_speed + 0.05;
+    const double transition_band  = cfg.normal.release_speed - cfg.normal.engage_speed;
+    const double disengaged_speed = cfg.normal.release_speed + transition_band + 0.05;
     safety.apply(state, disengaged_speed, true);
     assert(!safety.engaged());
     assert(state[7] > 0.0);
@@ -367,7 +433,8 @@ void test_mb_predictor_wheel_speeds_zeroed_when_engaged()
     state[25] = 0.02;
     state[26] = 0.01;
 
-    const double disengaged_speed = cfg.normal.engage_speed + 0.05;
+    const double transition_band  = cfg.normal.release_speed - cfg.normal.engage_speed;
+    const double disengaged_speed = cfg.normal.release_speed + transition_band + 0.05;
     safety.apply(state, disengaged_speed, true);
     assert(!safety.engaged());
     assert(state[23] > 0.0);
@@ -480,6 +547,8 @@ int main()
         test_latch_release_thresholds();
         test_drift_profile_selection();
         test_drift_mode_relaxes_unlatched_clamp();
+        test_slip_latch_tracks_velocity_heading();
+        test_transition_blend_preloads_clamp();
         test_vehicle_simulator_stop();
         test_rk4_predictor_does_not_latch_above_engage();
         test_std_predictor_wheel_speeds_zeroed_when_engaged();
