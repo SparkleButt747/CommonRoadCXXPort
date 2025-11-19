@@ -89,6 +89,7 @@ void LowSpeedSafety::apply(std::vector<double>& state, double speed, bool update
 
     const bool latch_active = engaged_;
     const bool drift_mode   = drift_enabled_;
+    const bool near_stop    = std::abs(speed) <= config_.stop_speed_epsilon;
 
     auto yaw_target       = kinematic_yaw_rate(state, speed);
     auto slip_target      = kinematic_slip(state, speed);
@@ -96,10 +97,16 @@ void LowSpeedSafety::apply(std::vector<double>& state, double speed, bool update
     auto velocity_heading = velocity_slip(state);
 
     if (latch_active) {
-        const double beta_ref = velocity_heading.value_or(0.0);
-        yaw_target            = 0.0;
-        slip_target           = beta_ref;
-        lateral_target        = speed * std::sin(beta_ref);
+        const double beta_ref     = velocity_heading.value_or(0.0);
+        const double slip_command = (velocity_heading.has_value() && !near_stop) ? beta_ref : 0.0;
+
+        yaw_target     = 0.0;
+        slip_target    = slip_command;
+        if (velocity_heading.has_value() && !near_stop) {
+            lateral_target = speed * std::sin(slip_command);
+        } else {
+            lateral_target = 0.0;
+        }
     }
 
     if (longitudinal_index_ && index_in_bounds(*longitudinal_index_, state)) {

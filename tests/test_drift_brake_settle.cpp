@@ -63,7 +63,6 @@ int main()
     simulator.reset({0.0, 0.0, 0.2, 8.0, 0.0, 0.5, 0.0});
 
     double max_yaw_rate      = 0.0;
-    double yaw_before_stop   = 0.0;
     double yaw_at_stop       = 0.0;
     bool   captured_slide    = false;
     bool   engaged_telemetry = false;
@@ -82,9 +81,7 @@ int main()
 
         if (speed > safety_cfg.drift.release_speed) {
             captured_slide = captured_slide || yaw_rate > 0.3;
-        } else if (speed > safety_cfg.stop_speed_epsilon) {
-            yaw_before_stop = yaw_rate;
-        } else {
+        } else if (speed <= safety_cfg.stop_speed_epsilon) {
             yaw_at_stop = yaw_rate;
             break;
         }
@@ -92,7 +89,7 @@ int main()
 
     assert(engaged_telemetry);
     assert(captured_slide);
-    assert(yaw_at_stop < yaw_before_stop);
+    assert(yaw_at_stop <= 1e-9);
     assert(max_yaw_rate > 0.3);
 
     // Spin latch should release cleanly once we accelerate again.
