@@ -88,10 +88,7 @@ ControllerOutput FinalAccelController::step(const DriverIntent& intent, double s
 {
     apply_actuator_dynamics(intent, dt);
 
-    const double brake_scale   = (cfg_.stop_speed_epsilon > 0.0)
-                                   ? std::clamp(std::abs(speed) / cfg_.stop_speed_epsilon, 0.0, 1.0)
-                                   : 1.0;
-    const double brake_request = brake_ * brake_scale;
+    const double brake_request = brake_;
 
     const double throttle_command = throttle_ * (1.0 - std::min(brake_, 1.0));
     const double available_regen_force = powertrain_.available_regen_torque(speed) / wheel_radius_;

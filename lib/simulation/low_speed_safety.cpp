@@ -102,16 +102,6 @@ void LowSpeedSafety::apply(std::vector<double>& state, double speed, bool update
         lateral_target        = speed * std::sin(beta_ref);
     }
 
-    if (longitudinal_index_ && index_in_bounds(*longitudinal_index_, state)) {
-        const std::size_t idx = static_cast<std::size_t>(*longitudinal_index_);
-        double value = state[idx];
-        if (value < 0.0) {
-            state[idx] = 0.0;
-        } else if (!engaged_ && std::fabs(value) <= config_.stop_speed_epsilon) {
-            state[idx] = 0.0;
-        }
-    }
-
     if (yaw_rate_index_ && index_in_bounds(*yaw_rate_index_, state)) {
         const std::size_t idx = static_cast<std::size_t>(*yaw_rate_index_);
         const bool         allow_unclamped = drift_mode && !latch_active;
