@@ -77,7 +77,8 @@ void test_coast_to_rest()
     const auto aero_cfg    = configs.load_aero_config();
     const auto rolling_cfg = configs.load_rolling_resistance_config();
     const auto brake_cfg   = configs.load_brake_config();
-    const auto ctrl_cfg    = configs.load_final_accel_controller_config();
+    auto ctrl_cfg          = configs.load_final_accel_controller_config();
+    ctrl_cfg.stop_speed_epsilon = 0.0;
 
     vml::FinalAccelController controller(params.m,
                                          params.R_w,
@@ -116,7 +117,8 @@ void test_brake_to_stop()
     const auto aero_cfg    = configs.load_aero_config();
     const auto rolling_cfg = configs.load_rolling_resistance_config();
     const auto brake_cfg   = configs.load_brake_config();
-    const auto ctrl_cfg    = configs.load_final_accel_controller_config();
+    auto ctrl_cfg          = configs.load_final_accel_controller_config();
+    ctrl_cfg.stop_speed_epsilon = 0.0;
 
     vml::FinalAccelController controller(params.m,
                                          params.R_w,
@@ -188,7 +190,8 @@ void test_stop_and_go_continuity()
     const auto aero_cfg    = configs.load_aero_config();
     const auto rolling_cfg = configs.load_rolling_resistance_config();
     const auto brake_cfg   = configs.load_brake_config();
-    const auto ctrl_cfg    = configs.load_final_accel_controller_config();
+    auto ctrl_cfg          = configs.load_final_accel_controller_config();
+    ctrl_cfg.stop_speed_epsilon = 0.0;
 
     vml::FinalAccelController controller(params.m,
                                          params.R_w,

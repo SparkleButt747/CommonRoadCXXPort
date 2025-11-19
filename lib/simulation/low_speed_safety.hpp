@@ -45,6 +45,7 @@ public:
     void set_drift_enabled(bool enabled) { drift_enabled_ = enabled; }
 
     void apply(std::vector<double>& state, double speed, bool update_latch = true);
+    [[nodiscard]] std::optional<int> longitudinal_index() const { return longitudinal_index_; }
 
 private:
     LowSpeedSafetyConfig config_{};

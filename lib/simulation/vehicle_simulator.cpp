@@ -48,9 +48,9 @@ const std::vector<double>& VehicleSimulator::step(const std::vector<double>& con
     }
 
     const double dt = dt_;
-    const auto current_state = state_;
+    const auto previous_state = state_;
 
-    auto [k1, current] = dynamics(current_state, control, true);
+    auto [k1, current] = dynamics(previous_state, control, true);
     state_ = current;
 
     auto k2_state = add_scaled(state_, 0.5 * dt, k1);
@@ -72,6 +72,17 @@ const std::vector<double>& VehicleSimulator::step(const std::vector<double>& con
 
     for (std::size_t i = 0; i < state_.size(); ++i) {
         state_[i] += (dt / 6.0) * (k1[i] + 2.0 * k2[i] + 2.0 * k3[i] + k4[i]);
+    }
+
+    if (const auto long_index = safety_.longitudinal_index()) {
+        const std::size_t idx = static_cast<std::size_t>(*long_index);
+        if (idx < previous_state.size() && idx < state_.size()) {
+            const double prev_long = previous_state[idx];
+            const double curr_long = state_[idx];
+            if (prev_long >= 0.0 && curr_long < 0.0) {
+                state_[idx] = 0.0;
+            }
+        }
     }
 
     apply_safety(state_, true);
