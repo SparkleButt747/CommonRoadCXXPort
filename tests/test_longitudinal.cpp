@@ -59,10 +59,11 @@ void test_regen_fade_out()
 
 double advance_speed(double speed, double acceleration, double dt, double stop_speed_epsilon)
 {
-    (void)stop_speed_epsilon;
-
     const double next_speed = speed + acceleration * dt;
     if (next_speed <= 0.0) {
+        return 0.0;
+    }
+    if (stop_speed_epsilon > 0.0 && std::abs(next_speed) <= stop_speed_epsilon && acceleration <= 0.0) {
         return 0.0;
     }
     return next_speed;
@@ -146,6 +147,39 @@ void test_brake_to_stop()
     assert(saw_negative_accel_at_creep && "Braking should continue slowing the car through standstill");
 }
 
+void test_high_speed_brake_to_stop()
+{
+    vio::ConfigManager configs{};
+    const auto params      = vm::parameters_vehicle2();
+    const auto power_cfg   = configs.load_powertrain_config();
+    const auto aero_cfg    = configs.load_aero_config();
+    const auto rolling_cfg = configs.load_rolling_resistance_config();
+    const auto brake_cfg   = configs.load_brake_config();
+    const auto ctrl_cfg    = configs.load_final_accel_controller_config();
+
+    vml::FinalAccelController controller(params.m,
+                                         params.R_w,
+                                         power_cfg,
+                                         aero_cfg,
+                                         rolling_cfg,
+                                         brake_cfg,
+                                         ctrl_cfg);
+
+    const double dt = 0.02;
+    double       speed = 12.0;
+    bool         reached_stop = false;
+    for (int i = 0; i < 800; ++i) {
+        const auto output = controller.step(vml::DriverIntent{0.0, 1.0}, speed, dt);
+        speed              = advance_speed(speed, output.acceleration, dt, ctrl_cfg.stop_speed_epsilon);
+        if (speed == 0.0) {
+            reached_stop = true;
+            break;
+        }
+    }
+
+    assert(reached_stop && "Vehicle should brake from highway speed to a complete stop");
+}
+
 void test_stop_and_go_continuity()
 {
     vio::ConfigManager configs{};
@@ -204,6 +238,7 @@ int main()
         test_regen_fade_out();
         test_coast_to_rest();
         test_brake_to_stop();
+        test_high_speed_brake_to_stop();
         test_stop_and_go_continuity();
     } catch (const std::exception& ex) {
         std::cerr << "Test raised exception: " << ex.what() << '\n';
