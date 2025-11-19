@@ -90,12 +90,13 @@ void LowSpeedSafety::apply(std::vector<double>& state, double speed, bool update
     const bool latch_active = engaged_;
     const bool drift_mode   = drift_enabled_;
 
-    auto yaw_target     = kinematic_yaw_rate(state, speed);
-    auto slip_target    = kinematic_slip(state, speed);
-    auto lateral_target = kinematic_lateral_velocity(state, speed);
+    auto yaw_target       = kinematic_yaw_rate(state, speed);
+    auto slip_target      = kinematic_slip(state, speed);
+    auto lateral_target   = kinematic_lateral_velocity(state, speed);
+    auto velocity_heading = velocity_slip(state);
 
-    if (latch_active && speed <= config_.stop_speed_epsilon) {
-        const double beta_ref = velocity_slip(state).value_or(0.0);
+    if (latch_active) {
+        const double beta_ref = velocity_heading.value_or(0.0);
         yaw_target            = 0.0;
         slip_target           = beta_ref;
         lateral_target        = speed * std::sin(beta_ref);
@@ -153,8 +154,7 @@ void LowSpeedSafety::apply(std::vector<double>& state, double speed, bool update
     }
 
     if (!wheel_speed_indices_.empty()) {
-        const bool wheel_stage_latch =
-            latch_active || (!update_latch && speed < profile.engage_speed);
+        const bool wheel_stage_latch = latch_active || speed < profile.engage_speed;
 
         for (int raw_idx : wheel_speed_indices_) {
             if (!index_in_bounds(raw_idx, state)) {

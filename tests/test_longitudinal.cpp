@@ -59,11 +59,13 @@ void test_regen_fade_out()
 
 double advance_speed(double speed, double acceleration, double dt, double stop_speed_epsilon)
 {
+    (void)stop_speed_epsilon;
+
     const double next_speed = speed + acceleration * dt;
-    if (std::abs(next_speed) <= stop_speed_epsilon) {
+    if (next_speed <= 0.0) {
         return 0.0;
     }
-    return std::max(0.0, next_speed);
+    return next_speed;
 }
 
 void test_coast_to_rest()
@@ -86,10 +88,14 @@ void test_coast_to_rest()
 
     const double dt = 0.05;
     double       speed = 1.0;
-    bool         reached_stop = false;
+    bool         reached_stop          = false;
+    bool         saw_negative_accel_at_creep = false;
     for (int i = 0; i < 800; ++i) {
         const auto output = controller.step(vml::DriverIntent{0.0, 0.0}, speed, dt);
-        speed              = advance_speed(speed, output.acceleration, dt, ctrl_cfg.stop_speed_epsilon);
+        if (speed < 0.25 && speed > 0.0 && output.acceleration < -1e-3) {
+            saw_negative_accel_at_creep = true;
+        }
+        speed = advance_speed(speed, output.acceleration, dt, ctrl_cfg.stop_speed_epsilon);
         if (speed == 0.0) {
             reached_stop = true;
             const auto settle = controller.step(vml::DriverIntent{0.0, 0.0}, speed, dt);
@@ -98,6 +104,7 @@ void test_coast_to_rest()
         }
     }
     assert(reached_stop && "Vehicle should coast to a full stop");
+    assert(saw_negative_accel_at_creep && "Drag/rolling resistance should continue slowing the car");
 }
 
 void test_brake_to_stop()
@@ -120,10 +127,14 @@ void test_brake_to_stop()
 
     const double dt = 0.05;
     double       speed = 5.0;
-    bool         reached_stop = false;
+    bool         reached_stop          = false;
+    bool         saw_negative_accel_at_creep = false;
     for (int i = 0; i < 400; ++i) {
         const auto output = controller.step(vml::DriverIntent{0.0, 1.0}, speed, dt);
-        speed              = advance_speed(speed, output.acceleration, dt, ctrl_cfg.stop_speed_epsilon);
+        if (speed < 0.25 && speed > 0.0 && output.acceleration < -1e-3) {
+            saw_negative_accel_at_creep = true;
+        }
+        speed = advance_speed(speed, output.acceleration, dt, ctrl_cfg.stop_speed_epsilon);
         if (speed == 0.0) {
             reached_stop = true;
             const auto settle = controller.step(vml::DriverIntent{0.0, 1.0}, speed, dt);
@@ -132,6 +143,7 @@ void test_brake_to_stop()
         }
     }
     assert(reached_stop && "Vehicle should brake to a full stop");
+    assert(saw_negative_accel_at_creep && "Braking should continue slowing the car through standstill");
 }
 
 void test_stop_and_go_continuity()
