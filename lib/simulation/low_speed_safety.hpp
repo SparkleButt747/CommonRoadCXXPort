@@ -48,6 +48,9 @@ public:
     [[nodiscard]] std::optional<int> longitudinal_index() const { return longitudinal_index_; }
 
 private:
+    struct MonitoredMetrics;
+    struct SafetyDecision;
+
     LowSpeedSafetyConfig config_{};
     bool                 drift_enabled_ = false;
     std::optional<int> longitudinal_index_;
@@ -70,6 +73,12 @@ private:
     std::optional<double> velocity_slip(const std::vector<double>& state) const;
     double                pre_latch_blend(double speed, const LowSpeedSafetyProfile& profile) const;
     double                scaled_limit(double limit, double speed, const LowSpeedSafetyProfile& profile) const;
+    MonitoredMetrics      monitor(const std::vector<double>& state, double speed, const LowSpeedSafetyProfile& profile) const;
+    SafetyDecision        decide(const MonitoredMetrics& metrics, const LowSpeedSafetyProfile& profile, bool update_latch);
+    void                  clamp_state(std::vector<double>&        state,
+                                      const MonitoredMetrics&     metrics,
+                                      const SafetyDecision&       decision,
+                                      const LowSpeedSafetyProfile& profile);
 };
 
 } // namespace velox::simulation
