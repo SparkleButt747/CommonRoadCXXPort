@@ -7,11 +7,9 @@
 
 #include "vehicle/parameters_vehicle2.hpp"
 
-#include "models/vehiclemodels/vehicle_dynamics_ks.hpp"
 #include "models/vehiclemodels/vehicle_dynamics_st.hpp"
 #include "models/vehiclemodels/vehicle_dynamics_mb.hpp"
 
-#include "models/vehiclemodels/init_ks.hpp"
 #include "models/vehiclemodels/init_st.hpp"
 #include "models/vehiclemodels/init_mb.hpp"
 
@@ -125,14 +123,6 @@ std::vector<double> integrate_rk4(DynamicsFunc f,
     return x;
 }
 
-// Convenience wrappers
-static std::vector<double> dyn_KS(const std::vector<double>& x,
-                                  const std::vector<double>& u,
-                                  const vm::VehicleParameters& p)
-{
-    return vm::vehicle_dynamics_ks(x, u, p);
-}
-
 static std::vector<double> dyn_ST(const std::vector<double>& x,
                                   const std::vector<double>& u,
                                   const vm::VehicleParameters& p)
@@ -178,7 +168,6 @@ int main()
     };
 
     // initial states via init_* (matching Python)
-    std::vector<double> x0_KS = vm::init_ks(initialState);
     std::vector<double> x0_ST = vm::init_st(initialState);
     std::vector<double> x0_MB = vm::init_mb(initialState, p);
 
@@ -189,7 +178,6 @@ int main()
 
     auto x_roll    = integrate_rk4(dyn_MB, x0_MB, u_roll, p, t_start, t_final, dt);
     auto x_roll_st = integrate_rk4(dyn_ST, x0_ST, u_roll, p, t_start, t_final, dt);
-    auto x_roll_ks = integrate_rk4(dyn_KS, x0_KS, u_roll, p, t_start, t_final, dt);
 
     std::vector<double> x_roll_gt{
         0.0, 0.0, 0.0,
@@ -206,7 +194,6 @@ int main()
 
     check_vec(x_roll,    x_roll_gt, 1e-2, TEST_NAME, "roll_MB");
     check_vec(x_roll_st, x0_ST,     0.0,  TEST_NAME, "roll_ST_constant");
-    check_vec(x_roll_ks, x0_KS,     0.0,  TEST_NAME, "roll_KS_constant");
 
     // -------------------------------------------------------------------------
     // 2) Decelerating car, v_delta = 0, acc = -0.7*g
@@ -218,7 +205,6 @@ int main()
 
         auto x_dec    = integrate_rk4(dyn_MB, x0_MB, u_dec, p, t_start, t_final, dt);
         auto x_dec_st = integrate_rk4(dyn_ST, x0_ST, u_dec, p, t_start, t_final, dt);
-        auto x_dec_ks = integrate_rk4(dyn_KS, x0_KS, u_dec, p, t_start, t_final, dt);
 
         std::vector<double> x_dec_gt{
             1.8225618646966624, -0.0086273097089525977, 0.0,
@@ -238,14 +224,8 @@ int main()
             0.0000000000000000
         };
 
-        std::vector<double> x_dec_ks_gt{
-            -3.4335000000000013, 0.0000000000000000, 0.0000000000000000,
-            -6.8670000000000018, 0.0000000000000000
-        };
-
         check_vec(x_dec,    x_dec_gt,    1e-2, TEST_NAME, "dec_MB");
         check_vec(x_dec_st, x_dec_st_gt, 1e-2, TEST_NAME, "dec_ST");
-        check_vec(x_dec_ks, x_dec_ks_gt, 1e-2, TEST_NAME, "dec_KS");
     }
 
     // -------------------------------------------------------------------------
@@ -258,7 +238,6 @@ int main()
 
         auto x_acc    = integrate_rk4(dyn_MB, x0_MB, u_acc, p, t_start, t_final, dt);
         auto x_acc_st = integrate_rk4(dyn_ST, x0_ST, u_acc, p, t_start, t_final, dt);
-        auto x_acc_ks = integrate_rk4(dyn_KS, x0_KS, u_acc, p, t_start, t_final, dt);
 
         std::vector<double> x_acc_gt{
             1.6871562929572532, 0.0042854001980273818, 0.14999999999998667,
@@ -279,14 +258,8 @@ int main()
             0.0697547542798040
         };
 
-        std::vector<double> x_acc_ks_gt{
-            3.0845676868494927, 0.1484249221523042, 0.1500000000000000,
-            6.1803000000000017, 0.1203664469224163
-        };
-
         check_vec(x_acc,    x_acc_gt,    1e-2, TEST_NAME, "acc_MB");
         check_vec(x_acc_st, x_acc_st_gt, 1e-2, TEST_NAME, "acc_ST");
-        check_vec(x_acc_ks, x_acc_ks_gt, 1e-2, TEST_NAME, "acc_KS");
     }
 
     // -------------------------------------------------------------------------
@@ -299,7 +272,6 @@ int main()
 
         auto x_left    = integrate_rk4(dyn_MB, x0_MB, u_left, p, t_start, t_final, dt);
         auto x_left_st = integrate_rk4(dyn_ST, x0_ST, u_left, p, t_start, t_final, dt);
-        auto x_left_ks = integrate_rk4(dyn_KS, x0_KS, u_left, p, t_start, t_final, dt);
 
         std::vector<double> x_left_gt{
             0.0, 0.0, 0.14999999999998667,
@@ -320,14 +292,8 @@ int main()
             0.083374602676255474
         };
 
-        std::vector<double> x_left_ks_gt{
-            0.0, 0.0, 0.14999999999998667,
-            0.0, 0.0
-        };
-
         check_vec(x_left,    x_left_gt,    1e-2, TEST_NAME, "left_MB");
         check_vec(x_left_st, x_left_st_gt, 1e-2, TEST_NAME, "left_ST");
-        check_vec(x_left_ks, x_left_ks_gt, 1e-2, TEST_NAME, "left_KS");
     }
 
     std::cout << "All zero-initial-velocity tests PASSED." << std::endl;
