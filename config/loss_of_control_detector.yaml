@@ -71,11 +71,11 @@ std:
     threshold: 1.4
     rate: 10.0
   slip_angle:
-    threshold: 0.55
+    threshold: 0.8
     rate: 5.0
   lateral_accel:
     threshold: 7.0
     rate: 14.0
   slip_ratio:
-    threshold: 0.22
+    threshold: 0.5
     rate: 7.0
