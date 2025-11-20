@@ -48,10 +48,22 @@ std::string model_key(simulation::ModelType model)
 ConfigManager::ConfigManager(std::filesystem::path config_root, std::filesystem::path parameter_root)
     : parameter_root_(std::move(parameter_root))
 {
+    if (!fs::exists(parameter_root_) || !fs::is_directory(parameter_root_)) {
+        std::ostringstream oss;
+        oss << "Parameter root is not a valid directory: " << parameter_root_.string();
+        throw ::velox::errors::ConfigError(VELOX_LOC(oss.str()));
+    }
+
     if (config_root.empty()) {
         config_root_ = parameter_root_.parent_path() / "config";
     } else {
         config_root_ = std::move(config_root);
+    }
+
+    if (!fs::exists(config_root_) || !fs::is_directory(config_root_)) {
+        std::ostringstream oss;
+        oss << "Config root is not a valid directory: " << config_root_.string();
+        throw ::velox::errors::ConfigError(VELOX_LOC(oss.str()));
     }
 }
 

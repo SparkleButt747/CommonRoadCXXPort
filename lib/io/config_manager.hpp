@@ -18,6 +18,11 @@ namespace velox::io {
 
 class ConfigManager {
 public:
+    /// Construct a configuration manager rooted at the provided directories.
+    /// `parameter_root` must point to the directory containing vehicle parameter YAMLs.
+    /// `config_root` defaults to the sibling `config/` directory next to `parameter_root`
+    /// when left empty. Both roots must exist and be directories; otherwise construction
+    /// throws `errors::ConfigError`.
     explicit ConfigManager(std::filesystem::path config_root = {},
                            std::filesystem::path parameter_root = std::filesystem::path(VELOX_PARAM_ROOT));
 
