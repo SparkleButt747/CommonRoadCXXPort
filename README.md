@@ -15,6 +15,7 @@ A lightweight C++17/20 port of the CommonRoad vehicle models with a small SDL/Im
 
 ### Configuration and parameters
 - `velox::io::ConfigManager` loads controller and timing YAML files and resolves parameter roots. It defaults to `parameters/` with `config/` as the sibling configuration directory.
+  The constructor validates both roots up front, throwing `ConfigError` if either path is missing or not a directory. Custom integrations should point `parameter_root` at the folder containing vehicle YAMLs and ensure the matching `config/` directory is present so controller YAMLs resolve consistently.
 - `velox::models::VehicleParameters` holds physical properties (mass, wheelbase, tire data, steering limits, etc.) and is populated by the configuration manager.
 
 ### Simulation daemon
