@@ -55,5 +55,10 @@ private:
 
 using LogSinkPtr = std::shared_ptr<LogSink>;
 
+inline LogSinkPtr make_console_log_sink()
+{
+    return std::make_shared<OstreamLogSink>(std::clog);
+}
+
 } // namespace velox::logging
 

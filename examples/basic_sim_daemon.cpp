@@ -13,6 +13,7 @@ int main()
     init.vehicle_id     = 1;
     init.config_root    = "config";
     init.parameter_root = "parameters";
+    init.use_default_log_sink();
 
     SimulationDaemon daemon(init);
 
@@ -20,7 +21,7 @@ int main()
     input.longitudinal.throttle     = 0.25;
     input.longitudinal.brake        = 0.0;
     input.steering_nudge            = 0.0;
-    input.dt                        = 0.01;
+    input.dt                        = 0.2; // intentionally large to trigger sub-stepping warnings
     input.timestamp                 = 0.0;
 
     for (int i = 0; i < 100; ++i) {
