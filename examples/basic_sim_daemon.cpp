@@ -9,7 +9,7 @@ int main()
     using namespace velox::simulation;
 
     SimulationDaemon::InitParams init{};
-    init.model          = ModelType::KS_REAR;
+    init.model          = ModelType::ST;
     init.vehicle_id     = 1;
     init.config_root    = "config";
     init.parameter_root = "parameters";

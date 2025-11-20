@@ -63,7 +63,7 @@ struct SimulationSnapshot {
 class SimulationDaemon {
 public:
     struct InitParams {
-        ModelType                 model{ModelType::KS_REAR};
+        ModelType                 model{ModelType::ST};
         int                       vehicle_id{1};
         std::filesystem::path     config_root{};
         std::filesystem::path     parameter_root{};

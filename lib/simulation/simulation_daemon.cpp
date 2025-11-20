@@ -1,20 +1,14 @@
 #include "simulation/simulation_daemon.hpp"
 
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <sstream>
 
 #include "common/errors.hpp"
 
-#include "models/vehicle_dynamics_ks_cog.hpp"
-#include "models/vehiclemodels/init_kst.hpp"
 #include "models/vehiclemodels/init_mb.hpp"
 #include "models/vehiclemodels/init_st.hpp"
 #include "models/vehiclemodels/init_std.hpp"
-#include "models/vehiclemodels/init_ks.hpp"
-#include "models/vehiclemodels/vehicle_dynamics_ks.hpp"
-#include "models/vehiclemodels/vehicle_dynamics_kst.hpp"
 #include "models/vehiclemodels/vehicle_dynamics_mb.hpp"
 #include "models/vehiclemodels/vehicle_dynamics_st.hpp"
 #include "models/vehiclemodels/vehicle_dynamics_std.hpp"
@@ -94,67 +88,6 @@ ModelInterface build_model_interface(ModelType model)
 {
     ModelInterface iface{};
     switch (model) {
-        case ModelType::KS_REAR:
-            iface.init_fn = [](const std::vector<double>& init_state, const models::VehicleParameters&) {
-                return models::init_ks(init_state);
-            };
-            iface.dynamics_fn = [](const std::vector<double>& x,
-                                   const std::vector<double>& u,
-                                   const models::VehicleParameters& params,
-                                   double) {
-                return models::vehicle_dynamics_ks(x, u, params);
-            };
-            iface.speed_fn = [](const std::vector<double>& state, const models::VehicleParameters&) {
-                return (state.size() > 3) ? std::abs(state[3]) : 0.0;
-            };
-            break;
-
-        case ModelType::KS_COG:
-            iface.init_fn = [](const std::vector<double>& init_state, const models::VehicleParameters&) {
-                return models::init_ks(init_state);
-            };
-            iface.dynamics_fn = [](const std::vector<double>& x,
-                                   const std::vector<double>& u,
-                                   const models::VehicleParameters& params,
-                                   double) {
-                std::array<double, 5> x_arr{};
-                std::array<double, 2> u_arr{};
-                for (std::size_t i = 0; i < x_arr.size(); ++i) {
-                    x_arr[i] = (i < x.size()) ? x[i] : 0.0;
-                }
-                if (!u.empty()) {
-                    u_arr[0] = u[0];
-                }
-                if (u.size() > 1) {
-                    u_arr[1] = u[1];
-                }
-                auto result = models::utils::vehicle_dynamics_ks_cog(x_arr, u_arr, params);
-                return std::vector<double>(result.begin(), result.end());
-            };
-            iface.speed_fn = [](const std::vector<double>& state, const models::VehicleParameters&) {
-                return (state.size() > 3) ? std::abs(state[3]) : 0.0;
-            };
-            break;
-
-        case ModelType::KST:
-            iface.init_fn = [](const std::vector<double>& init_state, const models::VehicleParameters&) {
-                std::vector<double> core(5, 0.0);
-                const std::size_t copy = std::min<std::size_t>(core.size(), init_state.size());
-                std::copy_n(init_state.begin(), copy, core.begin());
-                const double alpha0 = (init_state.size() > 5) ? init_state[5] : 0.0;
-                return models::init_kst(core, alpha0);
-            };
-            iface.dynamics_fn = [](const std::vector<double>& x,
-                                   const std::vector<double>& u,
-                                   const models::VehicleParameters& params,
-                                   double) {
-                return models::vehicle_dynamics_kst(x, u, params);
-            };
-            iface.speed_fn = [](const std::vector<double>& state, const models::VehicleParameters&) {
-                return (state.size() > 3) ? std::abs(state[3]) : 0.0;
-            };
-            break;
-
         case ModelType::MB:
             iface.init_fn = [](const std::vector<double>& init_state, const models::VehicleParameters& params) {
                 return models::init_mb(init_state, params);
@@ -225,13 +158,6 @@ LowSpeedSafety build_low_speed_safety(ModelType model,
     std::optional<int> steering;
 
     switch (model) {
-        case ModelType::KS_REAR:
-        case ModelType::KS_COG:
-        case ModelType::KST:
-            longitudinal = 3;
-            steering     = 2;
-            break;
-
         case ModelType::ST:
             longitudinal = 3;
             yaw_rate     = 5;

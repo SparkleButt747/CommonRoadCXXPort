@@ -7,12 +7,9 @@
 namespace velox::simulation {
 
 enum class ModelType {
-    KS_REAR = 0,
-    KS_COG  = 1,
-    KST     = 2,
-    MB      = 3,
-    ST      = 4,
-    STD     = 5
+    MB  = 0,
+    ST  = 1,
+    STD = 2
 };
 
 struct ModelTimingInfo {
@@ -23,19 +20,13 @@ struct ModelTimingInfo {
 inline constexpr float kMinStableDt = 0.001f;
 
 namespace detail {
-inline constexpr std::array<ModelTimingInfo, 6> kModelTimings = {
-    ModelTimingInfo{0.010f, 0.050f}, // KS_REAR
-    ModelTimingInfo{0.010f, 0.050f}, // KS_COG
-    ModelTimingInfo{0.010f, 0.030f}, // KST
+inline constexpr std::array<ModelTimingInfo, 3> kModelTimings = {
     ModelTimingInfo{0.005f, 0.005f}, // MB
     ModelTimingInfo{0.010f, 0.020f}, // ST
     ModelTimingInfo{0.010f, 0.010f}  // STD
 };
 
-inline constexpr std::array<const char*, 6> kModelNames = {
-    "KS (vehicle_dynamics_ks)",
-    "KS CoG (vehicle_dynamics_ks_cog)",
-    "KST trailer (vehicle_dynamics_kst)",
+inline constexpr std::array<const char*, 3> kModelNames = {
     "Multi-body (vehicle_dynamics_mb)",
     "ST (vehicle_dynamics_st)",
     "STD (vehicle_dynamics_std)"
