@@ -180,7 +180,7 @@ int main()
 
     const auto detector_root = make_temp_dir("velox_detector_override");
     write_file(detector_root / "loss_of_control_detector.yaml",
-               "st:\n"
+               "std:\n"
                "  yaw_rate:\n"
                "    threshold: 0.5\n"
                "    rate: 2.0\n"
@@ -194,7 +194,7 @@ int main()
                "    threshold: 0.1\n"
                "    rate: 1.5\n");
     vio::ConfigManager detector_mgr{detector_root};
-    const auto         detector_cfg = detector_mgr.load_loss_of_control_detector_config(vsim::ModelType::ST);
+    const auto         detector_cfg = detector_mgr.load_loss_of_control_detector_config(vsim::ModelType::STD);
     assert(std::abs(detector_cfg.yaw_rate.magnitude_threshold - 0.5) < 1e-9);
     assert(std::abs(detector_cfg.slip_ratio.rate_threshold - 1.5) < 1e-9);
 
