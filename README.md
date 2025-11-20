@@ -48,7 +48,8 @@ Use `telemetry::to_json` to serialize the payload or `telemetry::draw_telemetry_
 - The low-speed safety controller clamps yaw rate, slip angle, wheel speeds, and steering to keep models stable at near-zero speed. It exposes a relaxed “drift” profile with higher limits and looser clamping when controlled oversteer is desired.
 - Each model’s default profile is defined in `config/low_speed_safety*.yaml`. The single-track drift model ships with drift mode enabled by default, while other models default to the normal profile.
 - Enable or disable drift mode via `SimulationDaemon::InitParams::drift_enabled`, `ResetParams::drift_enabled`, or a `UserInput::drift_toggle` value ≥ `0.5`. Calling `SimulationDaemon::reset` without a drift override restores the model’s configured default and reinitializes controller integrators and safety latches.
-- Run `drift_mode_demo` after building to see drift mode expand yaw/slip telemetry compared to the normal profile in a headless loop; it uses the single-track drift (`ModelType::STD`) model and flips the drift profile on/off between passes.
+- Run `drift_mode_demo` after building to see drift mode expand yaw/slip telemetry compared to the normal profile in a headless loop; it uses the single-track drift (`ModelType::STD`) model and flips the drift profile on/off between passes. The sample now also logs detector severity and safety stage during a brake-and-steer maneuver to demonstrate the emergency engagement path and provide a repeatable CI check.
+- See `docs/safety_pipeline.md` for a deeper explanation of the staged safety pipeline, detector thresholds, drift defaults, and tuning guidance for new models.
 
 ### Error handling and logging
 - All library errors derive from `velox::errors::VeloxError` (specializations include `ConfigError`, `InputError`, and `SimulationError`). Errors include contextual file/line metadata via the `VELOX_LOC`/`VELOX_MODEL`/`VELOX_CONTEXT` helpers.
