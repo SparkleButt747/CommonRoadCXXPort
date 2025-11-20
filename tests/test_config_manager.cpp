@@ -1,4 +1,5 @@
 #include <cassert>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -176,6 +177,26 @@ int main()
         missing_field_threw = true;
     }
     assert(missing_field_threw && "Missing steering fields should be reported");
+
+    const auto detector_root = make_temp_dir("velox_detector_override");
+    write_file(detector_root / "loss_of_control_detector.yaml",
+               "ks:\n"
+               "  yaw_rate:\n"
+               "    threshold: 0.5\n"
+               "    rate: 2.0\n"
+               "  slip_angle:\n"
+               "    threshold: 0.25\n"
+               "    rate: 1.0\n"
+               "  lateral_accel:\n"
+               "    threshold: 3.0\n"
+               "    rate: 5.0\n"
+               "  slip_ratio:\n"
+               "    threshold: 0.1\n"
+               "    rate: 1.5\n");
+    vio::ConfigManager detector_mgr{detector_root};
+    const auto         detector_cfg = detector_mgr.load_loss_of_control_detector_config(vsim::ModelType::KS_REAR);
+    assert(std::abs(detector_cfg.yaw_rate.magnitude_threshold - 0.5) < 1e-9);
+    assert(std::abs(detector_cfg.slip_ratio.rate_threshold - 1.5) < 1e-9);
 
     std::cout << "Config manager tests passed\n";
     return 0;

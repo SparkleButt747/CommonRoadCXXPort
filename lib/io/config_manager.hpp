@@ -9,6 +9,7 @@
 #include "controllers/longitudinal/rolling_resistance.hpp"
 #include "controllers/steering_controller.hpp"
 #include "simulation/low_speed_safety.hpp"
+#include "simulation/loss_of_control_detector.hpp"
 #include "simulation/model_timing.hpp"
 #include "vehicle_parameters.hpp"
 #include "yaml-cpp/yaml.h"
@@ -44,6 +45,8 @@ public:
 
     // Safety
     [[nodiscard]] simulation::LowSpeedSafetyConfig load_low_speed_safety_config(simulation::ModelType model) const;
+    [[nodiscard]] simulation::LossOfControlDetectorConfig load_loss_of_control_detector_config(
+        simulation::ModelType model) const;
 
     // Model timing
     [[nodiscard]] simulation::ModelTimingInfo load_model_timing(simulation::ModelType model) const;
@@ -74,6 +77,9 @@ private:
 
     [[nodiscard]] simulation::LowSpeedSafetyConfig parse_low_speed_config(const YAML::Node& node,
                                                                           const std::filesystem::path& path) const;
+    [[nodiscard]] simulation::LossOfControlDetectorConfig parse_loss_of_control_detector_config(
+        const YAML::Node& node,
+        const std::filesystem::path& path) const;
 };
 
 } // namespace velox::io
