@@ -193,6 +193,91 @@ void test_slip_latch_tracks_velocity_heading()
     assert(std::abs(state[6] - 0.25) <= 1e-6);
 }
 
+void test_detector_severity_triggers_emergency()
+{
+    auto cfg = make_default_config();
+
+    vsim::LowSpeedSafety safety(
+        cfg,
+        /*longitudinal_index=*/3,
+        /*lateral_index=*/std::nullopt,
+        /*yaw_rate_index=*/5,
+        /*slip_index=*/6,
+        /*wheel_speed_indices=*/{},
+        /*steering_index=*/2,
+        /*wheelbase=*/std::make_optional(2.8),
+        /*rear_length=*/std::make_optional(1.3));
+
+    std::vector<double> state(9, 0.0);
+    state[5] = 0.2;   // yaw rate under limit
+    state[6] = 1.05;  // high slip
+
+    const double fast_speed = 3.0;
+    safety.apply(state, fast_speed, true);
+
+    assert(safety.engaged());
+    assert(std::abs(state[5]) <= cfg.normal.yaw_rate_limit + 1e-9);
+    assert(std::abs(state[6]) <= cfg.normal.slip_angle_limit + 1e-9);
+}
+
+void test_emergency_recovers_after_decay()
+{
+    auto cfg = make_default_config();
+
+    vsim::LowSpeedSafety safety(
+        cfg,
+        /*longitudinal_index=*/3,
+        /*lateral_index=*/std::nullopt,
+        /*yaw_rate_index=*/5,
+        /*slip_index=*/6,
+        /*wheel_speed_indices=*/{},
+        /*steering_index=*/2,
+        /*wheelbase=*/std::make_optional(2.8),
+        /*rear_length=*/std::make_optional(1.3));
+
+    std::vector<double> state(9, 0.0);
+    state[5] = 0.1;
+    state[6] = cfg.normal.slip_angle_limit * 2.0;
+
+    const double cruise_speed = 3.0;
+    safety.apply(state, cruise_speed, true);
+    assert(safety.engaged());
+
+    state[5] = 0.05;
+    state[6] = 0.05;
+    safety.apply(state, cruise_speed, true);
+
+    assert(!safety.engaged());
+    assert(std::abs(state[5] - 0.05) < 1e-9);
+    assert(std::abs(state[6] - 0.05) < 1e-9);
+}
+
+void test_low_severity_preserves_low_speed_latch()
+{
+    auto cfg = make_default_config();
+
+    vsim::LowSpeedSafety safety(
+        cfg,
+        /*longitudinal_index=*/3,
+        /*lateral_index=*/std::nullopt,
+        /*yaw_rate_index=*/5,
+        /*slip_index=*/6,
+        /*wheel_speed_indices=*/{},
+        /*steering_index=*/2,
+        /*wheelbase=*/std::make_optional(2.8),
+        /*rear_length=*/std::make_optional(1.3));
+
+    std::vector<double> state(9, 0.0);
+    state[3] = cfg.normal.engage_speed * 0.5;
+    state[5] = 0.01;
+    state[6] = 0.02;
+
+    safety.apply(state, cfg.normal.engage_speed * 0.5, true);
+    assert(safety.engaged());
+    assert(std::abs(state[5]) <= cfg.normal.yaw_rate_limit + 1e-9);
+    assert(std::abs(state[6]) <= cfg.normal.slip_angle_limit + 1e-9);
+}
+
 void test_transition_blend_preloads_clamp()
 {
     auto cfg = make_default_config();
@@ -548,6 +633,9 @@ int main()
         test_drift_profile_selection();
         test_drift_mode_relaxes_unlatched_clamp();
         test_slip_latch_tracks_velocity_heading();
+        test_detector_severity_triggers_emergency();
+        test_emergency_recovers_after_decay();
+        test_low_severity_preserves_low_speed_latch();
         test_transition_blend_preloads_clamp();
         test_vehicle_simulator_stop();
         test_rk4_predictor_does_not_latch_above_engage();
