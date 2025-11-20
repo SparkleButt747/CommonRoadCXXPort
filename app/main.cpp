@@ -347,9 +347,6 @@ int main(int, char**)
 
             int model_idx = static_cast<int>(ui.model);
             const char* model_items[] = {
-                "KS (vehicle_dynamics_ks)",
-                "KS CoG (vehicle_dynamics_ks_cog)",
-                "KST trailer (vehicle_dynamics_kst)",
                 "Multi-body (vehicle_dynamics_mb)",
                 "ST (vehicle_dynamics_st)",
                 "STD (vehicle_dynamics_std)"

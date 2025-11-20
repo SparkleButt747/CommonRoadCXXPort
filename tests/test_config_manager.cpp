@@ -136,7 +136,7 @@ int main()
                "  slip_angle_limit: 0.3\n");
 
     vio::ConfigManager override_mgr{override_root};
-    const auto         default_cfg  = override_mgr.load_low_speed_safety_config(vsim::ModelType::KS_REAR);
+    const auto         default_cfg  = override_mgr.load_low_speed_safety_config(vsim::ModelType::MB);
     const auto         override_cfg = override_mgr.load_low_speed_safety_config(vsim::ModelType::ST);
     assert(default_cfg.normal.engage_speed == 0.1 && override_cfg.normal.engage_speed == 1.1);
     assert(default_cfg.normal.release_speed == 0.2 && override_cfg.normal.release_speed == 1.2);
@@ -159,7 +159,7 @@ int main()
     try {
         vio::ConfigManager missing_toggle_mgr{missing_toggle_root};
         [[maybe_unused]] const auto unused_cfg =
-            missing_toggle_mgr.load_low_speed_safety_config(vsim::ModelType::KS_REAR);
+            missing_toggle_mgr.load_low_speed_safety_config(vsim::ModelType::MB);
     } catch (const std::exception&) {
         missing_toggle_threw = true;
     }
@@ -180,7 +180,7 @@ int main()
 
     const auto detector_root = make_temp_dir("velox_detector_override");
     write_file(detector_root / "loss_of_control_detector.yaml",
-               "ks:\n"
+               "st:\n"
                "  yaw_rate:\n"
                "    threshold: 0.5\n"
                "    rate: 2.0\n"
@@ -194,7 +194,7 @@ int main()
                "    threshold: 0.1\n"
                "    rate: 1.5\n");
     vio::ConfigManager detector_mgr{detector_root};
-    const auto         detector_cfg = detector_mgr.load_loss_of_control_detector_config(vsim::ModelType::KS_REAR);
+    const auto         detector_cfg = detector_mgr.load_loss_of_control_detector_config(vsim::ModelType::ST);
     assert(std::abs(detector_cfg.yaw_rate.magnitude_threshold - 0.5) < 1e-9);
     assert(std::abs(detector_cfg.slip_ratio.rate_threshold - 1.5) < 1e-9);
 

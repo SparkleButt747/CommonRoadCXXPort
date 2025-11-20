@@ -33,9 +33,6 @@ T required_scalar(const YAML::Node& node, const std::string& key, const fs::path
 std::string model_key(simulation::ModelType model)
 {
     switch (model) {
-        case simulation::ModelType::KS_REAR: return "ks";
-        case simulation::ModelType::KS_COG: return "ks_cog";
-        case simulation::ModelType::KST: return "kst";
         case simulation::ModelType::MB: return "mb";
         case simulation::ModelType::ST: return "st";
         case simulation::ModelType::STD: return "std";

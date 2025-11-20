@@ -130,16 +130,6 @@ SimulationTelemetry compute_simulation_telemetry(
     double beta   = 0.0;
 
     switch (model) {
-        case simulation::ModelType::KS_REAR:
-        case simulation::ModelType::KS_COG:
-        case simulation::ModelType::KST:
-            if (state.size() >= 5) {
-                v_long = state[3];
-                yaw    = state[4];
-            }
-            beta = 0.0;
-            break;
-
         case simulation::ModelType::ST:
             if (state.size() >= 7) {
                 v_long = state[3];
