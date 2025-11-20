@@ -428,8 +428,14 @@ std::vector<telemetry::SimulationTelemetry> SimulationDaemon::step(const std::ve
 {
     std::vector<telemetry::SimulationTelemetry> telemetry;
     telemetry.reserve(batch_inputs.size());
-    for (const auto& input : batch_inputs) {
-        telemetry.push_back(step(input));
+    for (std::size_t i = 0; i < batch_inputs.size(); ++i) {
+        try {
+            telemetry.push_back(step(batch_inputs[i]));
+        } catch (const std::exception& ex) {
+            std::ostringstream oss;
+            oss << "batch input #" << i;
+            rethrow_with_context("step", ex, oss.str());
+        }
     }
     return telemetry;
 }
@@ -607,10 +613,22 @@ std::string SimulationDaemon::context_description(std::string_view action) const
     return oss.str();
 }
 
+[[noreturn]] void SimulationDaemon::rethrow_with_context(const char* action,
+                                                         const std::exception& ex,
+                                                         std::string_view index_context) const
+{
+    auto context = context_description(action);
+    if (!index_context.empty()) {
+        context = ::velox::errors::append_context(std::move(context), index_context);
+    }
+
+    throw ::velox::errors::SimulationError(
+        VELOX_MODEL(::velox::errors::append_context(ex.what(), context), model_));
+}
+
 [[noreturn]] void SimulationDaemon::rethrow_with_context(const char* action, const std::exception& ex) const
 {
-    throw ::velox::errors::SimulationError(
-        VELOX_MODEL(::velox::errors::append_context(ex.what(), context_description(action)), model_));
+    rethrow_with_context(action, ex, {});
 }
 
 } // namespace velox::simulation
