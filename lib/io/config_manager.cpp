@@ -37,7 +37,9 @@ std::string model_key(simulation::ModelType model)
         case simulation::ModelType::ST: return "st";
         case simulation::ModelType::STD: return "std";
     }
-    return "";
+    std::ostringstream oss;
+    oss << "Unsupported model type: " << static_cast<int>(model);
+    throw ::velox::errors::ConfigError(VELOX_LOC(oss.str()));
 }
 
 } // namespace
