@@ -138,10 +138,10 @@ ModelInterface build_model_interface(ModelType model)
                 return (state.size() > 3) ? std::abs(state[3]) : 0.0;
             };
             break;
-    }
 
-    if (!iface.valid()) {
-        throw ::velox::errors::SimulationError(VELOX_MODEL("Unsupported model type for simulator", model));
+        default:
+            throw ::velox::errors::SimulationError(
+                VELOX_MODEL("Unsupported model type for simulator", model));
     }
     return iface;
 }
@@ -180,6 +180,10 @@ LowSpeedSafety build_low_speed_safety(ModelType model,
             wheel_indices = {23, 24, 25, 26};
             steering      = 2;
             break;
+
+        default:
+            throw ::velox::errors::SimulationError(
+                VELOX_MODEL("Unsupported model type for safety", model));
     }
 
     std::optional<double> wheelbase;
