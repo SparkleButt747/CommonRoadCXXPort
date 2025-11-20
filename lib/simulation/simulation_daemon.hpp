@@ -60,13 +60,13 @@ struct SimulationSnapshot {
     double                            simulation_time_s{0.0};
 };
 
-class SimulationDaemon {
-public:
-    struct InitParams {
-        ModelType                 model{ModelType::ST};
-        int                       vehicle_id{1};
-        std::filesystem::path     config_root{};
-        std::filesystem::path     parameter_root{};
+    class SimulationDaemon {
+    public:
+        struct InitParams {
+            ModelType                 model{ModelType::MB};
+            int                       vehicle_id{1};
+            std::filesystem::path     config_root{};
+            std::filesystem::path     parameter_root{};
         logging::LogSinkPtr       log_sink{};
         std::optional<bool>       drift_enabled{};
 

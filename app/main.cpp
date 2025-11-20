@@ -39,9 +39,9 @@ constexpr float kSliderMaxDt   = 0.05f;
 const std::array<int, 4> kVehicleIds{1, 2, 3, 4};
 
 struct SimulationUiState {
-    vsim::ModelType model{vsim::ModelType::ST};
+    vsim::ModelType model{vsim::ModelType::MB};
     int             vehicle_index{0};
-    double          requested_dt{0.01};
+    double          requested_dt{vsim::model_timing(vsim::ModelType::MB).nominal_dt};
     std::string     dt_warning{};
     double          dt_warning_expires{0.0};
 };
@@ -347,9 +347,9 @@ int main(int, char**)
 
             int model_idx = static_cast<int>(ui.model);
             const char* model_items[] = {
-                "Multi-body (vehicle_dynamics_mb)",
-                "ST (vehicle_dynamics_st)",
-                "STD (vehicle_dynamics_std)"
+                vsim::model_display_name(vsim::ModelType::MB),
+                vsim::model_display_name(vsim::ModelType::ST),
+                vsim::model_display_name(vsim::ModelType::STD)
             };
             if (ImGui::Combo("Model", &model_idx, model_items, IM_ARRAYSIZE(model_items))) {
                 ui.model     = static_cast<vsim::ModelType>(model_idx);
