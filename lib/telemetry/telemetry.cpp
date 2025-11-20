@@ -14,15 +14,16 @@ constexpr double kEpsilon = 1e-6;
 
 double yaw_rate_from_state(simulation::ModelType model, const std::vector<double>& state, double v_long, double steer_angle, double wheelbase)
 {
+    (void)v_long;
+    (void)steer_angle;
+    (void)wheelbase;
+
     switch (model) {
+        case simulation::ModelType::ST:
+        case simulation::ModelType::STD:
         case simulation::ModelType::MB:
             if (state.size() > 5) {
                 return state[5];
-            }
-            break;
-        default:
-            if (wheelbase > kEpsilon) {
-                return v_long * std::tan(steer_angle) / wheelbase;
             }
             break;
     }
@@ -182,9 +183,10 @@ SimulationTelemetry compute_simulation_telemetry(
                 telemetry.acceleration.lateral = v_long * state[5];
             }
             break;
-        default:
-            if (wheelbase > kEpsilon) {
-                telemetry.acceleration.lateral = v_long * v_long * std::tan(steer_angle) / wheelbase;
+        case simulation::ModelType::ST:
+        case simulation::ModelType::STD:
+            if (state.size() > 5) {
+                telemetry.acceleration.lateral = v_long * state[5];
             }
             break;
     }
