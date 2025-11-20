@@ -139,6 +139,9 @@ private:
                                const controllers::FinalSteerController::Output& steer_output) const;
     void log_timing_adjustments(const ModelTiming::StepSchedule& schedule) const;
     std::string context_description(std::string_view action) const;
+    [[noreturn]] void rethrow_with_context(const char* action,
+                                           const std::exception& ex,
+                                           std::string_view index_context) const;
     [[noreturn]] void rethrow_with_context(const char* action, const std::exception& ex) const;
 };
 
