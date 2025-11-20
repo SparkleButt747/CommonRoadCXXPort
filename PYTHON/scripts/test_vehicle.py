@@ -9,21 +9,12 @@ from matplotlib.pyplot import title, legend
 import math
 
 from PYTHON.vehiclemodels.parameters_vehicle2 import parameters_vehicle2
-from PYTHON.vehiclemodels.init_ks import init_ks
 from PYTHON.vehiclemodels.init_st import init_st
 from PYTHON.vehiclemodels.init_mb import init_mb
 from PYTHON.vehiclemodels.init_std import init_std
-from PYTHON.vehiclemodels.vehicle_dynamics_ks import vehicle_dynamics_ks
 from PYTHON.vehiclemodels.vehicle_dynamics_st import vehicle_dynamics_st
 from PYTHON.vehiclemodels.vehicle_dynamics_mb import vehicle_dynamics_mb
 from PYTHON.vehiclemodels.vehicle_dynamics_std import vehicle_dynamics_std
-
-
-def func_KS(x, t, u, p):
-    f = vehicle_dynamics_ks(x, u, p)
-    return f
-
-
 def func_ST(x, t, u, p):
     f = vehicle_dynamics_st(x, u, p)
     return f
@@ -54,7 +45,6 @@ dotPsi0 = 0
 beta0 = 0
 sy0 = 0
 initialState = [0, sy0, delta0, vel0, Psi0, dotPsi0, beta0]  # initial state for simulation
-x0_KS = init_ks(initialState)  # initial state for kinematic single-track model
 x0_ST = init_st(initialState)  # initial state for single-track model
 x0_MB = init_mb(initialState, p)  # initial state for multi-body model
 x0_STD = init_std(initialState, p)  # initial state for single-track drift model
@@ -72,9 +62,6 @@ def cornering_left(v_delta, a_long):
     # simulate single-track model
     x_left_st = odeint(func_ST, x0_ST, t, args=(u, p))
 
-    # simulate kinematic single-track model
-    x_left_ks = odeint(func_KS, x0_KS, t, args=(u, p))
-
     # simulate single-track drift model
     x_left_std = odeint(func_STD, x0_STD, t, args=(u,p))
 
@@ -83,9 +70,8 @@ def cornering_left(v_delta, a_long):
     title('positions turning')
     plt.plot([tmp[0] for tmp in x_left], [tmp[1] for tmp in x_left])
     plt.plot([tmp[0] for tmp in x_left_st], [tmp[1] for tmp in x_left_st])
-    plt.plot([tmp[0] for tmp in x_left_ks], [tmp[1] for tmp in x_left_ks])
     plt.plot([tmp[0] for tmp in x_left_std], [tmp[1] for tmp in x_left_std])
-    legend(['MB', 'ST', 'KS', 'STD'])
+    legend(['MB', 'ST', 'STD'])
     plt.autoscale()
     plt.show()
 

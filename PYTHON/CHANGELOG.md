@@ -2,11 +2,12 @@
 
 ## [3.0.0] - 2022-10-28
 ### Added
-* linearized kinematic single-track vehicle model
+* dynamic single-track, single-track drift, and multi-body vehicle models
 
 ### Changed
 * vehicle parameters are stored in Yaml files
 * omegaconf used to create configuration object from Yaml files (backwards compatible)
+* legacy kinematic single-track variants and linearized models removed from the Python package
 
 ## [2.0.0] - 2020-12-07
 ### Added

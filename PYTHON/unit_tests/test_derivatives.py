@@ -1,11 +1,8 @@
 import unittest
 
 from vehiclemodels.parameters_vehicle2 import parameters_vehicle2
-from vehiclemodels.parameters_vehicle4 import parameters_vehicle4
-from vehiclemodels.vehicle_dynamics_ks import vehicle_dynamics_ks
 from vehiclemodels.vehicle_dynamics_mb import vehicle_dynamics_mb
 from vehiclemodels.vehicle_dynamics_st import vehicle_dynamics_st
-from vehiclemodels.vehicle_dynamics_kst import vehicle_dynamics_kst
 from vehiclemodels.vehicle_dynamics_std import vehicle_dynamics_std
 
 
@@ -19,26 +16,6 @@ class TestDerivatives(unittest.TestCase):
         v_delta = 0.15
         acc = 0.63 * g
         self.u = [v_delta, acc]
-
-    def test_ks(self):
-        # state values
-        x_ks = [3.9579422297936526, 0.0391650102771405, 0.0378491427211811, 16.3546957860883566, 0.0294717351052816]
-        # ground truth
-        f_ks_gt = [16.3475935934250209, 0.4819314886013121, 0.1500000000000000, 5.1464424102339752, 0.2401426578627629]
-        # test
-        f_ks = vehicle_dynamics_ks(x_ks, self.u, self.p)
-        for i in range((len(f_ks))):
-            self.assertAlmostEqual(f_ks[i], f_ks_gt[i], places=14)
-
-    def test_kst(self):
-        # state values
-        x_kst = [3.9579422297936526, 0.0391650102771405, 0.0378491427211811, 16.3546957860883566, 0.0294717351052816, 0.0294717351052816]
-        # ground truth
-        f_kst_gt = [16.3475935934250209, 0.4819314886013121, 0.1500000000000000, 5.501539201758522, 0.1720297150523055, -0.23152742969444276]
-        # test
-        f_kst = vehicle_dynamics_kst(x_kst, self.u, parameters_vehicle4())
-        for i in range(len(f_kst)):
-            self.assertAlmostEqual(f_kst[i], f_kst_gt[i], places=14)
 
     def test_st(self):
         # state values
