@@ -36,6 +36,19 @@ double axle_slip_angle(double v_lat, double v_long, double yaw_rate, double offs
     return std::atan2(lateral_velocity, safe_longitudinal) - steer_angle;
 }
 
+const char* safety_stage_name(simulation::SafetyStage stage)
+{
+    switch (stage) {
+        case simulation::SafetyStage::Normal:
+            return "normal";
+        case simulation::SafetyStage::Transition:
+            return "transition";
+        case simulation::SafetyStage::Emergency:
+            return "emergency";
+    }
+    return "unknown";
+}
+
 std::pair<WheelTelemetry, WheelTelemetry> build_wheels(double base_longitudinal_velocity,
                                                        double v_lat,
                                                        double yaw_rate,
@@ -268,10 +281,24 @@ SimulationTelemetry compute_simulation_telemetry(
     telemetry.totals.distance_traveled_m    = cumulative_distance_m;
     telemetry.totals.energy_consumed_joules = cumulative_energy_j;
     telemetry.totals.simulation_time_s      = cumulative_sim_time_s;
-    telemetry.low_speed_engaged             = safety ? safety->engaged() : false;
-    telemetry.traction.drift_mode           = safety ? safety->drift_enabled() : false;
+    if (safety) {
+        const auto status = safety->status(state, speed);
+        telemetry.detector_severity = status.severity;
+        telemetry.safety_stage      = status.stage;
+        telemetry.detector_forced   = status.detector_forced;
+        telemetry.low_speed_engaged = status.latch_active;
+        telemetry.traction.drift_mode = status.drift_mode;
+    } else {
+        telemetry.low_speed_engaged = false;
+        telemetry.traction.drift_mode = false;
+    }
 
     return telemetry;
+}
+
+const char* safety_stage_to_string(simulation::SafetyStage stage)
+{
+    return safety_stage_name(stage);
 }
 
 std::string to_json(const SimulationTelemetry& telemetry)
@@ -358,7 +385,10 @@ std::string to_json(const SimulationTelemetry& telemetry)
         << "\"energy_consumed_joules\":" << telemetry.totals.energy_consumed_joules << ","
         << "\"simulation_time_s\":" << telemetry.totals.simulation_time_s << "},";
 
-    oss << "\"low_speed_engaged\":" << (telemetry.low_speed_engaged ? "true" : "false")
+    oss << "\"low_speed_engaged\":" << (telemetry.low_speed_engaged ? "true" : "false") << ','
+        << "\"detector_severity\":" << telemetry.detector_severity << ','
+        << "\"safety_stage\":\"" << safety_stage_name(telemetry.safety_stage) << "\","
+        << "\"detector_forced\":" << (telemetry.detector_forced ? "true" : "false")
         << '}';
 
     return oss.str();

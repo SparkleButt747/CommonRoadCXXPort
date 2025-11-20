@@ -27,6 +27,23 @@ struct LowSpeedSafetyConfig {
     }
 };
 
+enum class SafetyStage
+{
+    Normal,
+    Transition,
+    Emergency
+};
+
+struct LowSpeedSafetyStatus
+{
+    double      severity         = 0.0;
+    double      transition_blend = 0.0;
+    bool        drift_mode       = false;
+    bool        detector_forced  = false;
+    bool        latch_active     = false;
+    SafetyStage stage            = SafetyStage::Normal;
+};
+
 class LowSpeedSafety {
 public:
     LowSpeedSafety(const LowSpeedSafetyConfig& config,
@@ -43,6 +60,8 @@ public:
     bool engaged() const { return engaged_; }
     bool drift_enabled() const { return drift_enabled_; }
     void set_drift_enabled(bool enabled) { drift_enabled_ = enabled; }
+
+    [[nodiscard]] LowSpeedSafetyStatus status(const std::vector<double>& state, double speed) const;
 
     void apply(std::vector<double>& state, double speed, bool update_latch = true);
     [[nodiscard]] std::optional<int> longitudinal_index() const { return longitudinal_index_; }
