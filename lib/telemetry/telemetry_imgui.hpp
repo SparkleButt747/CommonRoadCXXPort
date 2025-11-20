@@ -14,9 +14,17 @@ inline void draw_telemetry_imgui(const SimulationTelemetry& telemetry, const cha
                                                            : ImVec4(0.6f, 0.6f, 0.6f, 1.0f);
     const ImVec4 drift_color = telemetry.traction.drift_mode ? ImVec4(0.78f, 0.92f, 0.36f, 1.0f)
                                                              : ImVec4(0.6f, 0.6f, 0.6f, 1.0f);
+    const ImVec4 detector_color = telemetry.detector_forced ? ImVec4(1.0f, 0.35f, 0.35f, 1.0f)
+                                                            : latch_color;
+    const char* stage_label = safety_stage_to_string(telemetry.safety_stage);
     ImGui::TextColored(latch_color,
                        "Low-speed safety latch: %s",
                        telemetry.low_speed_engaged ? "ENGAGED" : "Released");
+    ImGui::TextColored(detector_color,
+                       "Safety stage: %s (severity %.2f)%s",
+                       stage_label,
+                       telemetry.detector_severity,
+                       telemetry.detector_forced ? " [detector]" : "");
     ImGui::TextColored(drift_color, "Drift mode: %s", telemetry.traction.drift_mode ? "ACTIVE" : "Off");
 
     ImGui::Text("Pose: (%.3f, %.3f) yaw %.3f rad",

@@ -311,14 +311,22 @@ int main(int, char**)
             ImGui::Text("Time: %.2f s", telemetry.totals.simulation_time_s);
             const bool drift_on           = telemetry.traction.drift_mode;
             const bool low_speed_latched  = telemetry.low_speed_engaged;
+            const bool detector_forced    = telemetry.detector_forced;
+            const char* stage_label       = vtel::safety_stage_to_string(telemetry.safety_stage);
             const ImVec4 drift_color      = drift_on ? ImVec4(0.78f, 0.92f, 0.36f, 1.0f)
                                                      : ImVec4(0.55f, 0.55f, 0.55f, 1.0f);
             const ImVec4 latch_color      = low_speed_latched ? ImVec4(1.0f, 0.62f, 0.26f, 1.0f)
                                                              : ImVec4(0.55f, 0.55f, 0.55f, 1.0f);
+            const ImVec4 detector_color   = detector_forced ? ImVec4(1.0f, 0.35f, 0.35f, 1.0f) : latch_color;
             ImGui::TextColored(drift_color, "Drift mode: %s", drift_on ? "ACTIVE" : "Off");
             ImGui::TextColored(latch_color,
                                "Low-speed safety latch: %s",
                                low_speed_latched ? "ENGAGED" : "Released");
+            ImGui::TextColored(detector_color,
+                               "Safety stage: %s (severity %.2f)%s",
+                               stage_label,
+                               telemetry.detector_severity,
+                               detector_forced ? " [detector]" : "");
             ImGui::Separator();
 
             ImGui::Text("Keyboard controls");
@@ -411,7 +419,10 @@ int main(int, char**)
             ImGui::Text("v:   %8.3f m/s", telemetry.velocity.speed);
             ImGui::Text("Distance: %.2f m", telemetry.totals.distance_traveled_m);
             ImGui::Text("Energy:   %.1f J", telemetry.totals.energy_consumed_joules);
-            ImGui::Text("Low-speed safety: %s", telemetry.low_speed_engaged ? "engaged" : "off");
+            ImGui::Text("Low-speed safety: %s (stage: %s%s)",
+                        telemetry.low_speed_engaged ? "engaged" : "off",
+                        vtel::safety_stage_to_string(telemetry.safety_stage),
+                        telemetry.detector_forced ? ", detector" : "");
 
             vtel::draw_telemetry_imgui(telemetry);
 

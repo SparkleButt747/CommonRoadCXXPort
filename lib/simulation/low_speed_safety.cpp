@@ -72,14 +72,6 @@ void LowSpeedSafety::reset()
 }
 
 namespace {
-
-enum class SafetyMode
-{
-    Normal,
-    Transition,
-    Emergency
-};
-
 } // namespace
 
 struct LowSpeedSafety::MonitoredMetrics
@@ -99,9 +91,10 @@ struct LowSpeedSafety::MonitoredMetrics
 
 struct LowSpeedSafety::SafetyDecision
 {
-    SafetyMode mode             = SafetyMode::Normal;
+    SafetyStage mode            = SafetyStage::Normal;
     bool       latch_active     = false;
     double     transition_blend = 0.0;
+    bool       severity_trip    = false;
 };
 
 LowSpeedSafety::MonitoredMetrics LowSpeedSafety::monitor(const std::vector<double>& state,
@@ -161,14 +154,15 @@ LowSpeedSafety::SafetyDecision LowSpeedSafety::decide(const LowSpeedSafety::Moni
     }
 
     SafetyDecision decision{};
+    decision.severity_trip    = severity_trip;
     decision.transition_blend = metrics.transition_blend;
     decision.latch_active     = engaged_ || severity_trip;
     if (decision.latch_active) {
-        decision.mode = SafetyMode::Emergency;
+        decision.mode = SafetyStage::Emergency;
     } else if (metrics.transition_blend > 0.0) {
-        decision.mode = SafetyMode::Transition;
+        decision.mode = SafetyStage::Transition;
     } else {
-        decision.mode = SafetyMode::Normal;
+        decision.mode = SafetyStage::Normal;
     }
 
     return decision;
@@ -180,7 +174,7 @@ void LowSpeedSafety::clamp_state(std::vector<double>&              state,
                                  const LowSpeedSafetyProfile& profile)
 {
     const bool drift_mode       = metrics.drift_mode;
-    const bool allow_unclamped  = drift_mode && decision.mode == SafetyMode::Normal && decision.transition_blend <= 0.0;
+    const bool allow_unclamped  = drift_mode && decision.mode == SafetyStage::Normal && decision.transition_blend <= 0.0;
     const bool wheel_stage_latch = decision.latch_active || metrics.speed < profile.engage_speed || decision.transition_blend > 0.0;
 
     auto yaw_target       = metrics.yaw_target;
@@ -188,7 +182,7 @@ void LowSpeedSafety::clamp_state(std::vector<double>&              state,
     auto lateral_target   = metrics.lateral_target;
     auto velocity_heading = metrics.velocity_heading;
 
-    if (decision.mode == SafetyMode::Emergency) {
+    if (decision.mode == SafetyStage::Emergency) {
         const double beta_ref     = velocity_heading.value_or(0.0);
         const double slip_command = (velocity_heading.has_value() && !metrics.near_stop) ? beta_ref : 0.0;
 
@@ -203,7 +197,7 @@ void LowSpeedSafety::clamp_state(std::vector<double>&              state,
 
     if (yaw_rate_index_ && index_in_bounds(*yaw_rate_index_, state)) {
         const std::size_t idx = static_cast<std::size_t>(*yaw_rate_index_);
-        if (decision.mode == SafetyMode::Emergency) {
+        if (decision.mode == SafetyStage::Emergency) {
             const double limit  = profile.yaw_rate_limit;
             const double target = yaw_target.value_or(0.0);
             state[idx]          = clamp(target, -limit, limit);
@@ -221,7 +215,7 @@ void LowSpeedSafety::clamp_state(std::vector<double>&              state,
     if (lateral_index_ && index_in_bounds(*lateral_index_, state)) {
         const std::size_t idx = static_cast<std::size_t>(*lateral_index_);
         double value = state[idx];
-        if (decision.mode == SafetyMode::Emergency) {
+        if (decision.mode == SafetyStage::Emergency) {
             if (lateral_target.has_value()) {
                 state[idx] = *lateral_target;
             } else {
@@ -235,7 +229,7 @@ void LowSpeedSafety::clamp_state(std::vector<double>&              state,
 
     if (slip_index_ && index_in_bounds(*slip_index_, state)) {
         const std::size_t idx = static_cast<std::size_t>(*slip_index_);
-        if (decision.mode == SafetyMode::Emergency) {
+        if (decision.mode == SafetyStage::Emergency) {
             const double limit  = profile.slip_angle_limit;
             const double target = slip_target.value_or(0.0);
             state[idx]          = clamp(target, -limit, limit);
@@ -275,6 +269,26 @@ void LowSpeedSafety::apply(std::vector<double>& state, double speed, bool update
     const auto  metrics  = monitor(state, speed, profile);
     const auto  decision = decide(metrics, profile, update_latch);
     clamp_state(state, metrics, decision, profile);
+}
+
+LowSpeedSafetyStatus LowSpeedSafety::status(const std::vector<double>& state, double speed) const
+{
+    const auto& profile = config_.active_profile(drift_enabled_);
+    const auto  metrics = monitor(state, speed, profile);
+
+    LowSpeedSafetyStatus status{};
+    status.severity         = metrics.severity;
+    status.transition_blend = metrics.transition_blend;
+    status.drift_mode       = metrics.drift_mode;
+    status.detector_forced  = metrics.severity > 1.0;
+    status.latch_active     = engaged_ || status.detector_forced;
+    if (status.latch_active) {
+        status.stage = SafetyStage::Emergency;
+    } else if (metrics.transition_blend > 0.0) {
+        status.stage = SafetyStage::Transition;
+    }
+
+    return status;
 }
 
 bool LowSpeedSafety::index_in_bounds(int index, const std::vector<double>& state)

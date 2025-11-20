@@ -23,7 +23,7 @@ int main()
     safety_cfg.normal        = {0.05, 0.25, 1.0, 0.3};
     safety_cfg.drift         = {0.05, 0.25, 1.5, 0.6};
     safety_cfg.stop_speed_epsilon = 0.01;
-    safety_cfg.drift_enabled = true;
+    safety_cfg.drift_enabled = false;
 
     vsim::LowSpeedSafety safety(safety_cfg,
                                 3,
@@ -34,7 +34,7 @@ int main()
                                 2,
                                 params.a + params.b,
                                 params.b);
-    safety.set_drift_enabled(true);
+    safety.set_drift_enabled(false);
 
     vcon::longitudinal::ControllerOutput accel_output{};
     accel_output.acceleration = 1.2;
@@ -66,6 +66,10 @@ int main()
                                                  0.0,
                                                  0.0);
 
+    assert(!calm.traction.drift_mode);
+    assert(calm.detector_severity < 1.0);
+    assert(calm.safety_stage == vsim::SafetyStage::Normal);
+
     std::vector<double> drift_state = calm_state;
     drift_state[2]  = 0.25;
     drift_state[5]  = 2.0;
@@ -74,6 +78,7 @@ int main()
     wheel_output.target_angle = drift_state[2];
     steer_output.angle        = drift_state[2];
 
+    safety.set_drift_enabled(true);
     auto drift = vt::compute_simulation_telemetry(vsim::ModelType::MB,
                                                   params,
                                                   drift_state,
@@ -91,6 +96,9 @@ int main()
     assert(drift.traction.lateral_force_saturation > calm.traction.lateral_force_saturation);
     assert(std::abs(drift.front_axle.left.slip_ratio) > std::abs(calm.front_axle.left.slip_ratio));
     assert(drift.traction.drift_mode);
+    assert(drift.detector_severity > 1.0);
+    assert(drift.safety_stage == vsim::SafetyStage::Emergency);
+    assert(drift.detector_forced);
 
     return 0;
 }
