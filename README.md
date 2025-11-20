@@ -57,6 +57,14 @@ Use `telemetry::to_json` to serialize the payload or `telemetry::draw_telemetry_
 - User input validation throws `InputError`; configuration and simulation failures throw `ConfigError` or `SimulationError` respectively. Callers should surface these messages to users and stop stepping until resolved.
 - The daemon accepts an optional `logging::LogSinkPtr` to route warnings about clamping, timing adjustments, or controller limits to a host-provided logger.
 
+To see clamp/limit warnings without wiring a logger, enable the default console sink on construction:
+
+```cpp
+velox::simulation::SimulationDaemon::InitParams init{};
+init.use_default_log_sink();
+velox::simulation::SimulationDaemon daemon(init);
+```
+
 ## Building
 
 ```bash

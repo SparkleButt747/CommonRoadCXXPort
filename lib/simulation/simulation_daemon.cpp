@@ -294,8 +294,10 @@ SimulationDaemon::SimulationDaemon(const InitParams& init)
     , configs_(init.config_root, init.parameter_root)
     , model_(init.model)
     , timing_(configs_.load_model_timing(init.model))
-    , log_sink_(init.log_sink)
 {
+    init_.use_default_log_sink();
+    log_sink_ = init_.log_sink;
+
     load_vehicle_parameters(init.vehicle_id);
 
     const auto initial_safety_cfg = configs_.load_low_speed_safety_config(init.model);

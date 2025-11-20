@@ -69,6 +69,13 @@ public:
         std::filesystem::path     parameter_root{};
         logging::LogSinkPtr       log_sink{};
         std::optional<bool>       drift_enabled{};
+
+        void use_default_log_sink()
+        {
+            if (!log_sink) {
+                log_sink = logging::make_console_log_sink();
+            }
+        }
     };
 
     explicit SimulationDaemon(const InitParams& init);
