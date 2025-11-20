@@ -59,11 +59,9 @@ from vehiclemodels.sim.controllers.steering import (
 )
 
 # Vehicle dynamics and state initializers
-from vehiclemodels.init_ks import init_ks
 from vehiclemodels.init_st import init_st
 from vehiclemodels.init_std import init_std
 from vehiclemodels.init_mb import init_mb
-from vehiclemodels.vehicle_dynamics_ks import vehicle_dynamics_ks
 from vehiclemodels.vehicle_dynamics_st import vehicle_dynamics_st
 from vehiclemodels.vehicle_dynamics_std import vehicle_dynamics_std
 from vehiclemodels.vehicle_dynamics_mb import vehicle_dynamics_mb
@@ -88,10 +86,6 @@ class ModelSpec:
 
 
 # Model-specific helper lambdas -------------------------------------------------
-
-def _init_ks(state: Sequence[float], _params: object) -> Sequence[float]:
-    return init_ks(list(state))
-
 
 def _init_st(state: Sequence[float], _params: object) -> Sequence[float]:
     return list(init_st(list(state)))
@@ -129,20 +123,6 @@ def _speed_multi_body(state: Sequence[float]) -> float:
 
 
 MODEL_SPECS: Dict[str, ModelSpec] = {
-    "ks": ModelSpec(
-        name="Kinematic Single Track",
-        init_fn=_init_ks,
-        dynamics_fn=vehicle_dynamics_ks,
-        position_fn=_pos_xy0,
-        yaw_fn=_yaw_idx(4),
-        speed_fn=_speed_single_track,
-        longitudinal_index=3,
-        lateral_index=None,
-        yaw_rate_index=None,
-        slip_index=None,
-        wheel_speed_indices=None,
-        steering_index=2,
-    ),
     "st": ModelSpec(
         name="Dynamic Single Track",
         init_fn=_init_st,
