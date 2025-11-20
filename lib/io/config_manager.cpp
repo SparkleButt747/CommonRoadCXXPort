@@ -118,6 +118,21 @@ simulation::LowSpeedSafetyConfig ConfigManager::load_low_speed_safety_config(sim
     return parse_low_speed_config(node, path);
 }
 
+simulation::LossOfControlDetectorConfig
+ConfigManager::load_loss_of_control_detector_config(simulation::ModelType model) const
+{
+    const auto key  = model_key(model);
+    const auto path = resolve_config_path("loss_of_control_detector.yaml");
+    const auto node = load_yaml(path, "loss of control detector");
+    const auto root = node[key];
+    if (!root || !root.IsMap()) {
+        std::ostringstream oss;
+        oss << "loss_of_control_detector.yaml missing section for '" << key << "'";
+        throw ::velox::errors::ConfigError(VELOX_LOC(oss.str()));
+    }
+    return parse_loss_of_control_detector_config(root, path);
+}
+
 simulation::ModelTimingInfo ConfigManager::load_model_timing(simulation::ModelType model) const
 {
     const auto default_timing = simulation::model_timing(model);
@@ -320,6 +335,33 @@ simulation::LowSpeedSafetyConfig ConfigManager::parse_low_speed_config(const YAM
         oss << "Invalid type for key 'drift_enabled' in " << path.string() << ": " << ex.what();
         throw ::velox::errors::ConfigError(VELOX_LOC(oss.str()));
     }
+    cfg.validate();
+    return cfg;
+}
+
+simulation::LossOfControlDetectorConfig ConfigManager::parse_loss_of_control_detector_config(
+    const YAML::Node& node,
+    const std::filesystem::path& path) const
+{
+    const auto parse_metric = [&](const char* key) {
+        const auto metric = node[key];
+        if (!metric || !metric.IsMap()) {
+            std::ostringstream oss;
+            oss << "loss of control detector config missing '" << key << "' section in " << path.string();
+            throw ::velox::errors::ConfigError(VELOX_LOC(oss.str()));
+        }
+
+        simulation::MetricThreshold thresholds{};
+        thresholds.magnitude_threshold = required_scalar<double>(metric, "threshold", path);
+        thresholds.rate_threshold       = required_scalar<double>(metric, "rate", path);
+        return thresholds;
+    };
+
+    simulation::LossOfControlDetectorConfig cfg{};
+    cfg.yaw_rate      = parse_metric("yaw_rate");
+    cfg.slip_angle    = parse_metric("slip_angle");
+    cfg.lateral_accel = parse_metric("lateral_accel");
+    cfg.slip_ratio    = parse_metric("slip_ratio");
     cfg.validate();
     return cfg;
 }
