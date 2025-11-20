@@ -84,15 +84,10 @@ add_library(velox STATIC
     ${VELOX_LIB_DIR}/models/tire_model.cpp
     ${VELOX_LIB_DIR}/models/vehicle_dynamics_ks_cog.cpp
 
-    ${VELOX_LIB_DIR}/models/vehiclemodels/src/vehicle_dynamics_ks.cpp
-    ${VELOX_LIB_DIR}/models/vehiclemodels/src/vehicle_dynamics_kst.cpp
-    ${VELOX_LIB_DIR}/models/vehiclemodels/src/vehicle_dynamics_linearized.cpp
     ${VELOX_LIB_DIR}/models/vehiclemodels/src/vehicle_dynamics_mb.cpp
     ${VELOX_LIB_DIR}/models/vehiclemodels/src/vehicle_dynamics_st.cpp
     ${VELOX_LIB_DIR}/models/vehiclemodels/src/vehicle_dynamics_std.cpp
 
-    ${VELOX_LIB_DIR}/models/vehiclemodels/src/init_ks.cpp
-    ${VELOX_LIB_DIR}/models/vehiclemodels/src/init_kst.cpp
     ${VELOX_LIB_DIR}/models/vehiclemodels/src/init_st.cpp
     ${VELOX_LIB_DIR}/models/vehiclemodels/src/init_mb.cpp
     ${VELOX_LIB_DIR}/models/vehiclemodels/src/init_std.cpp
@@ -310,15 +305,6 @@ if(BUILD_VELOX_TESTS)
             velox
     )
     add_test(NAME test_drift_brake_settle COMMAND test_drift_brake_settle)
-
-    add_executable(test_init_ks_kst
-        tests/test_init_ks_kst.cpp
-    )
-    target_link_libraries(test_init_ks_kst
-        PRIVATE
-            velox
-    )
-    add_test(NAME test_init_ks_kst COMMAND test_init_ks_kst)
 
     add_executable(test_init_mb
         tests/test_init_mb.cpp

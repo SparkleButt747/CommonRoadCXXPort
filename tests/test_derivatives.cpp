@@ -5,14 +5,11 @@
 #include <iomanip>
 #include <vector>
 
-#include "models/vehiclemodels/vehicle_dynamics_ks.hpp"
-#include "models/vehiclemodels/vehicle_dynamics_kst.hpp"
 #include "models/vehiclemodels/vehicle_dynamics_st.hpp"
 #include "models/vehiclemodels/vehicle_dynamics_std.hpp"
 #include "models/vehiclemodels/vehicle_dynamics_mb.hpp"
 
 #include "vehicle/parameters_vehicle2.hpp"
-#include "vehicle/parameters_vehicle4.hpp"
 
 namespace vm = velox::models;
 
@@ -60,53 +57,6 @@ static void check_vec(const std::vector<double>& got,
 // -----------------------------------------------------------------------------
 // Individual tests (direct port of Python unit tests)
 // -----------------------------------------------------------------------------
-
-static void test_ks(const vm::VehicleParameters& p, const std::vector<double>& u)
-{
-    std::vector<double> x_ks{
-        3.9579422297936526,
-        0.0391650102771405,
-        0.0378491427211811,
-        16.3546957860883566,
-        0.0294717351052816
-    };
-
-    std::vector<double> f_ks_gt{
-        16.3475935934250209,
-        0.4819314886013121,
-        0.1500000000000000,
-        5.1464424102339752,
-        0.2401426578627629
-    };
-
-    auto f_ks = vm::vehicle_dynamics_ks(x_ks, u, p);
-    check_vec(f_ks, f_ks_gt, 1e-13, "vehicle_dynamics_ks");
-}
-
-static void test_kst(const std::vector<double>& u)
-{
-    std::vector<double> x_kst{
-        3.9579422297936526,
-        0.0391650102771405,
-        0.0378491427211811,
-        16.3546957860883566,
-        0.0294717351052816,
-        0.0294717351052816
-    };
-
-    std::vector<double> f_kst_gt{
-        16.3475935934250209,
-        0.4819314886013121,
-        0.1500000000000000,
-        5.501539201758522,
-        0.1720297150523055,
-        -0.23152742969444276
-    };
-
-    auto p4   = vm::parameters_vehicle4();
-    auto f_kst = vm::vehicle_dynamics_kst(x_kst, u, p4);
-    check_vec(f_kst, f_kst_gt, 1e-13, "vehicle_dynamics_kst");
-}
 
 static void test_st(const vm::VehicleParameters& p, const std::vector<double>& u)
 {
@@ -244,8 +194,6 @@ int main()
         const double acc     = 0.63 * g;
         std::vector<double> u{ v_delta, acc };
 
-        test_ks(p2, u);
-        test_kst(u);
         test_st(p2, u);
         test_std(p2, u);
         test_mb(p2, u);
