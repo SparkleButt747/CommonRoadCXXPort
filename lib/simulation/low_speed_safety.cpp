@@ -104,9 +104,9 @@ struct LowSpeedSafety::SafetyDecision
     double     transition_blend = 0.0;
 };
 
-MonitoredMetrics LowSpeedSafety::monitor(const std::vector<double>& state,
-                                          double                     speed,
-                                          const LowSpeedSafetyProfile& profile) const
+LowSpeedSafety::MonitoredMetrics LowSpeedSafety::monitor(const std::vector<double>& state,
+                                                         double                     speed,
+                                                         const LowSpeedSafetyProfile& profile) const
 {
     MonitoredMetrics metrics{};
     metrics.speed            = speed;
@@ -142,9 +142,9 @@ MonitoredMetrics LowSpeedSafety::monitor(const std::vector<double>& state,
     return metrics;
 }
 
-SafetyDecision LowSpeedSafety::decide(const MonitoredMetrics& metrics,
-                                       const LowSpeedSafetyProfile& profile,
-                                       bool update_latch)
+LowSpeedSafety::SafetyDecision LowSpeedSafety::decide(const LowSpeedSafety::MonitoredMetrics& metrics,
+                                                      const LowSpeedSafetyProfile& profile,
+                                                      bool update_latch)
 {
     const bool severity_trip = metrics.severity > 1.0;
 
@@ -174,9 +174,9 @@ SafetyDecision LowSpeedSafety::decide(const MonitoredMetrics& metrics,
     return decision;
 }
 
-void LowSpeedSafety::clamp_state(std::vector<double>&        state,
-                                 const MonitoredMetrics&     metrics,
-                                 const SafetyDecision&       decision,
+void LowSpeedSafety::clamp_state(std::vector<double>&              state,
+                                 const LowSpeedSafety::MonitoredMetrics& metrics,
+                                 const LowSpeedSafety::SafetyDecision& decision,
                                  const LowSpeedSafetyProfile& profile)
 {
     const bool drift_mode       = metrics.drift_mode;
