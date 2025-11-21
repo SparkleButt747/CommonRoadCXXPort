@@ -32,9 +32,10 @@
 #include "telemetry/telemetry_imgui.hpp"
 #include "yaml-cpp/yaml.h"
 
-namespace vsim  = velox::simulation;
-namespace vio   = velox::io;
-namespace vtel  = velox::telemetry;
+namespace vsim   = velox::simulation;
+namespace vio    = velox::io;
+namespace vtel   = velox::telemetry;
+namespace vmodel = velox::models;
 
 namespace {
 
@@ -138,7 +139,7 @@ InputFlags merge_flags(const InputFlags& defaults, const InputFlagOverrides& ove
     return merged;
 }
 
-std::vector<double> normalize_axle_torques(const vsim::models::VehicleParameters& params,
+std::vector<double> normalize_axle_torques(const vmodel::VehicleParameters& params,
                                            const std::vector<double>& preferred)
 {
     std::size_t driven_axles = 0;
