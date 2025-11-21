@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <numeric>
 #include <sstream>
 
 #include "common/errors.hpp"
@@ -390,27 +391,66 @@ telemetry::SimulationTelemetry SimulationDaemon::step(const UserInput& input)
         controllers::FinalSteerController::Output   final_output{};
         controllers::SteeringWheel::Output          steering_output{};
 
-        for (const double dt : schedule.substeps) {
-            const double start_speed   = simulator_->speed();
-            const double current_angle = (simulator_->state().size() > 2) ? simulator_->state()[2] : 0.0;
-            steering_output = steering_wheel_->update(sanitized_input.steering_nudge, dt);
-            final_output = final_steer_->update(steering_output.target_angle, current_angle, dt);
+        switch (sanitized_input.control_mode) {
+            case ControlMode::Keyboard: {
+                for (const double dt : schedule.substeps) {
+                    const double start_speed   = simulator_->speed();
+                    const double current_angle = (simulator_->state().size() > 2) ? simulator_->state()[2] : 0.0;
+                    steering_output = steering_wheel_->update(sanitized_input.steering_nudge, dt);
+                    final_output = final_steer_->update(steering_output.target_angle, current_angle, dt);
 
-            const double speed = simulator_->speed();
-            accel_output = accel_controller_->step(sanitized_input.longitudinal, speed, dt);
+                    const double speed = simulator_->speed();
+                    accel_output = accel_controller_->step(sanitized_input.longitudinal, speed, dt);
 
-            std::vector<double> control{final_output.rate, accel_output.acceleration};
-            simulator_->set_dt(dt);
-            simulator_->step(control);
+                    std::vector<double> control{final_output.rate, accel_output.acceleration};
+                    simulator_->set_dt(dt);
+                    simulator_->step(control);
 
-            const double end_speed = simulator_->speed();
-            cumulative_distance_m_ += 0.5 * (std::abs(start_speed) + std::abs(end_speed)) * dt;
-            cumulative_energy_j_   += accel_output.battery_power * dt;
-            timing_.record_step(dt);
+                    const double end_speed = simulator_->speed();
+                    cumulative_distance_m_ += 0.5 * (std::abs(start_speed) + std::abs(end_speed)) * dt;
+                    cumulative_energy_j_   += accel_output.battery_power * dt;
+                    timing_.record_step(dt);
+                }
+                log_controller_limits(accel_output, final_output);
+                break;
+            }
+            case ControlMode::Direct: {
+                const double commanded_accel = direct_acceleration_from_torque(sanitized_input.axle_torques);
+                const double total_force     = commanded_accel * params_.m;
+
+                for (const double dt : schedule.substeps) {
+                    const double start_speed   = simulator_->speed();
+                    const double current_angle = (simulator_->state().size() > 2) ? simulator_->state()[2] : 0.0;
+
+                    final_output    = final_steer_->update(sanitized_input.steering_angle, current_angle, dt);
+                    steering_output = {sanitized_input.steering_angle, sanitized_input.steering_angle, final_output.rate};
+
+                    accel_output.acceleration    = commanded_accel;
+                    accel_output.drive_force     = (total_force >= 0.0) ? total_force : 0.0;
+                    accel_output.brake_force     = (total_force < 0.0) ? -total_force : 0.0;
+                    accel_output.regen_force     = accel_output.brake_force;
+                    accel_output.hydraulic_force = 0.0;
+
+                    std::vector<double> control{final_output.rate, commanded_accel};
+                    simulator_->set_dt(dt);
+                    simulator_->step(control);
+
+                    const double end_speed = simulator_->speed();
+                    const double mean_speed = 0.5 * (std::abs(start_speed) + std::abs(end_speed));
+                    accel_output.mechanical_power = total_force * mean_speed;
+                    accel_output.battery_power    = accel_output.mechanical_power;
+
+                    cumulative_distance_m_ += mean_speed * dt;
+                    cumulative_energy_j_   += accel_output.battery_power * dt;
+                    timing_.record_step(dt);
+                }
+                break;
+            }
+            default:
+                throw ::velox::errors::InputError(VELOX_LOC("Unknown control mode"));
         }
 
         last_telemetry_ = compute_telemetry(accel_output, steering_output, final_output);
-        log_controller_limits(accel_output, final_output);
         return last_telemetry_;
     } catch (const ::velox::errors::VeloxError&) {
         throw;
@@ -483,7 +523,23 @@ void SimulationDaemon::rebuild_controllers()
                               brake_cfg,
                               accel_controller);
 
+    rebuild_drivetrain_layout();
     rebuild_input_limits();
+}
+
+void SimulationDaemon::rebuild_drivetrain_layout()
+{
+    drivetrain_layout_ = {};
+
+    drivetrain_layout_.front_split = std::clamp(params_.T_se, 0.0, 1.0);
+    drivetrain_layout_.rear_split  = std::clamp(1.0 - drivetrain_layout_.front_split, 0.0, 1.0);
+
+    if (drivetrain_layout_.front_split > 0.0) {
+        drivetrain_layout_.driven_axles.push_back(DrivenAxle::Front);
+    }
+    if (drivetrain_layout_.rear_split > 0.0) {
+        drivetrain_layout_.driven_axles.push_back(DrivenAxle::Rear);
+    }
 }
 
 void SimulationDaemon::rebuild_safety(const LowSpeedSafetyConfig& safety_cfg)
@@ -506,6 +562,30 @@ void SimulationDaemon::rebuild_input_limits()
 {
     input_limits_ = UserInputLimits::from_vehicle(
         steering_wheel_ ? &(*steering_wheel_) : nullptr, params_, accel_controller_ ? &powertrain_config_ : nullptr);
+}
+
+double SimulationDaemon::direct_acceleration_from_torque(const std::vector<double>& axle_torques) const
+{
+    if (axle_torques.size() != drivetrain_layout_.driven_axles.size()) {
+        std::ostringstream oss;
+        oss << "Expected " << drivetrain_layout_.driven_axles.size() << " driven axle torques, got "
+            << axle_torques.size();
+        throw ::velox::errors::InputError(VELOX_LOC(oss.str()));
+    }
+
+    if (drivetrain_layout_.driven_axles.empty()) {
+        throw ::velox::errors::SimulationError(VELOX_LOC("No driven axles configured for direct torque control"));
+    }
+
+    if (!(params_.m > 0.0)) {
+        throw ::velox::errors::SimulationError(VELOX_LOC("Vehicle mass must be positive for torque conversion"));
+    }
+    if (!(params_.R_w > 0.0)) {
+        throw ::velox::errors::SimulationError(VELOX_LOC("Wheel radius must be positive for torque conversion"));
+    }
+
+    const double total_torque = std::accumulate(axle_torques.begin(), axle_torques.end(), 0.0);
+    return total_torque / (params_.m * params_.R_w);
 }
 
 telemetry::SimulationTelemetry SimulationDaemon::compute_telemetry(

@@ -82,6 +82,19 @@ struct SimulationSnapshot {
     [[nodiscard]] SimulationSnapshot snapshot() const;
 
 private:
+    enum class DrivenAxle
+    {
+        Front,
+        Rear,
+    };
+
+    struct DrivetrainLayout
+    {
+        std::vector<DrivenAxle> driven_axles{};
+        double                  front_split{0.0};
+        double                  rear_split{0.0};
+    };
+
     InitParams              init_{};
     io::ConfigManager       configs_{};
     ModelType               model_{};
@@ -98,6 +111,7 @@ private:
     std::optional<controllers::longitudinal::FinalAccelController> accel_controller_{};
     controllers::longitudinal::PowertrainConfig            powertrain_config_{};
     UserInputLimits                                        input_limits_{kDefaultUserInputLimits};
+    DrivetrainLayout                                        drivetrain_layout_{};
 
     logging::LogSinkPtr log_sink_{};
 
@@ -108,9 +122,11 @@ private:
 
     void load_vehicle_parameters(int vehicle_id);
     void rebuild_controllers();
+    void rebuild_drivetrain_layout();
     void rebuild_safety(const LowSpeedSafetyConfig& safety_cfg);
     void rebuild_simulator(double dt, const std::vector<double>& initial_state);
     void rebuild_input_limits();
+    double direct_acceleration_from_torque(const std::vector<double>& axle_torques) const;
     telemetry::SimulationTelemetry compute_telemetry(
         const controllers::longitudinal::ControllerOutput& accel_output,
         const controllers::SteeringWheel::Output& steering_input,
