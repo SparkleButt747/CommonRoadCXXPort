@@ -8,6 +8,7 @@
 namespace velox {
 namespace controllers {
 class SteeringWheel;
+class FinalSteerController;
 
 namespace longitudinal {
 struct DriverIntent;
@@ -44,6 +45,7 @@ struct UserInputLimits {
     std::vector<double> max_axle_torque{};
 
     static UserInputLimits from_vehicle(const controllers::SteeringWheel* steering_wheel,
+                                        const controllers::FinalSteerController* final_steer,
                                         const models::VehicleParameters& params,
                                         const controllers::longitudinal::PowertrainConfig* powertrain_cfg);
 };

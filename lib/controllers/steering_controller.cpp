@@ -192,13 +192,21 @@ FinalSteerController::FinalSteerController(const SteeringConfig::Final& cfg,
 
 void FinalSteerController::reset(double current_angle)
 {
-    const double min_angle = combined_min_angle(cfg_, limits_);
-    const double max_angle = combined_max_angle(cfg_, limits_);
-    const double clamped   = clamp(current_angle, min_angle, max_angle);
+    const double clamped = clamp(current_angle, min_angle(), max_angle());
     filtered_target_           = clamped;
     last_output_.filtered_target = clamped;
     last_output_.angle          = clamped;
     last_output_.rate           = 0.0;
+}
+
+double FinalSteerController::min_angle() const
+{
+    return combined_min_angle(cfg_, limits_);
+}
+
+double FinalSteerController::max_angle() const
+{
+    return combined_max_angle(cfg_, limits_);
 }
 
 FinalSteerController::Output FinalSteerController::update(double desired_angle,
@@ -209,11 +217,11 @@ FinalSteerController::Output FinalSteerController::update(double desired_angle,
         throw ::velox::errors::InputError(VELOX_LOC("dt must be positive"));
     }
 
-    const double min_angle = combined_min_angle(cfg_, limits_);
-    const double max_angle = combined_max_angle(cfg_, limits_);
+    const double min_angle_value = min_angle();
+    const double max_angle_value = max_angle();
 
-    const double desired_clamped  = clamp(desired_angle, min_angle, max_angle);
-    const double measured_clamped = clamp(current_angle, min_angle, max_angle);
+    const double desired_clamped  = clamp(desired_angle, min_angle_value, max_angle_value);
+    const double measured_clamped = clamp(current_angle, min_angle_value, max_angle_value);
 
     if (cfg_.smoothing_time_constant > 0.0) {
         const double alpha = clamp01(dt / (cfg_.smoothing_time_constant + dt));
@@ -221,7 +229,7 @@ FinalSteerController::Output FinalSteerController::update(double desired_angle,
     } else {
         filtered_target_ = desired_clamped;
     }
-    filtered_target_ = clamp(filtered_target_, min_angle, max_angle);
+    filtered_target_ = clamp(filtered_target_, min_angle_value, max_angle_value);
 
     const double tau  = cfg_.actuator_time_constant;
     double       rate = (filtered_target_ - measured_clamped) / tau;
@@ -230,12 +238,12 @@ FinalSteerController::Output FinalSteerController::update(double desired_angle,
     const double rate_max = combined_rate_max(cfg_, limits_);
     rate                   = clamp(rate, rate_min, rate_max);
 
-    const double max_step = (max_angle - measured_clamped) / dt;
-    const double min_step = (min_angle - measured_clamped) / dt;
+    const double max_step = (max_angle_value - measured_clamped) / dt;
+    const double min_step = (min_angle_value - measured_clamped) / dt;
     rate                  = clamp(rate, min_step, max_step);
 
     double new_angle = measured_clamped + rate * dt;
-    new_angle        = clamp(new_angle, min_angle, max_angle);
+    new_angle        = clamp(new_angle, min_angle_value, max_angle_value);
 
     rate = (new_angle - measured_clamped) / dt;
 
@@ -243,6 +251,13 @@ FinalSteerController::Output FinalSteerController::update(double desired_angle,
     last_output_.angle           = new_angle;
     last_output_.rate            = rate;
     return last_output_;
+}
+
+FinalSteerController::Output FinalSteerController::update_absolute(double desired_angle,
+                                                                  double current_angle,
+                                                                  double dt)
+{
+    return update(desired_angle, current_angle, dt);
 }
 
 } // namespace velox::controllers

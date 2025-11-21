@@ -18,11 +18,15 @@
 namespace velox::simulation {
 
 UserInputLimits UserInputLimits::from_vehicle(const controllers::SteeringWheel* steering_wheel,
+                                              const controllers::FinalSteerController* final_steer,
                                               const models::VehicleParameters& params,
                                               const controllers::longitudinal::PowertrainConfig* powertrain_cfg)
 {
     UserInputLimits limits{};
-    if (steering_wheel) {
+    if (final_steer) {
+        limits.min_steering_angle = final_steer->min_angle();
+        limits.max_steering_angle = final_steer->max_angle();
+    } else if (steering_wheel) {
         limits.min_steering_angle = -steering_wheel->config().max_angle;
         limits.max_steering_angle = steering_wheel->config().max_angle;
     } else {
@@ -422,8 +426,9 @@ telemetry::SimulationTelemetry SimulationDaemon::step(const UserInput& input)
                     const double start_speed   = simulator_->speed();
                     const double current_angle = (simulator_->state().size() > 2) ? simulator_->state()[2] : 0.0;
 
-                    final_output    = final_steer_->update(sanitized_input.steering_angle, current_angle, dt);
-                    steering_output = {sanitized_input.steering_angle, sanitized_input.steering_angle, final_output.rate};
+                    const double target_angle = sanitized_input.steering_angle;
+                    final_output              = final_steer_->update_absolute(target_angle, current_angle, dt);
+                    steering_output           = {target_angle, final_output.filtered_target, final_output.rate};
 
                     accel_output.acceleration    = commanded_accel;
                     accel_output.drive_force     = (total_force >= 0.0) ? total_force : 0.0;
@@ -561,7 +566,10 @@ void SimulationDaemon::rebuild_simulator(double dt, const std::vector<double>& i
 void SimulationDaemon::rebuild_input_limits()
 {
     input_limits_ = UserInputLimits::from_vehicle(
-        steering_wheel_ ? &(*steering_wheel_) : nullptr, params_, accel_controller_ ? &powertrain_config_ : nullptr);
+        steering_wheel_ ? &(*steering_wheel_) : nullptr,
+        final_steer_ ? &(*final_steer_) : nullptr,
+        params_,
+        accel_controller_ ? &powertrain_config_ : nullptr);
 }
 
 double SimulationDaemon::direct_acceleration_from_torque(const std::vector<double>& axle_torques) const

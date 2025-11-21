@@ -77,10 +77,13 @@ public:
     };
 
     Output update(double desired_angle, double current_angle, double dt);
+    Output update_absolute(double desired_angle, double current_angle, double dt);
     void   reset(double current_angle = 0.0);
 
     const Output& last_output() const { return last_output_; }
     const SteeringConfig::Final& config() const noexcept { return cfg_; }
+    [[nodiscard]] double min_angle() const;
+    [[nodiscard]] double max_angle() const;
 
 private:
     SteeringConfig::Final cfg_{};
