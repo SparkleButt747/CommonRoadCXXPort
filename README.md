@@ -26,7 +26,7 @@ A lightweight C++17/20 port of the CommonRoad vehicle models with a small SDL/Im
 - `telemetry()` exposes the last computed telemetry payload for callers that are not stepping every frame (e.g., render-only threads).
 
 ### User input and timing
-- `UserInput` encodes throttle/brake, steering nudge, drift toggles, requested timestep `dt`, and the caller’s timestamp. The helper `clamped()` validates input and constrains it using `UserInputLimits` (defaults are exported as `kDefaultUserInputLimits`).
+- `UserInput` encodes throttle/brake, steering nudge, drift toggles, requested timestep `dt`, the caller’s timestamp, and control-mode specific fields (steering angle and axle torques for direct control). The helper `clamped()` validates input and constrains it using `UserInputLimits` (defaults are exported as `kDefaultUserInputLimits`).
 - Transmission/gear selection is intentionally kept out of the daemon inputs; if an ICE powertrain is added later, model it via a dedicated powertrain control block rather than exposing gearbox state directly.
 - `ModelTiming` uses per-model `ModelTimingInfo` (`nominal_dt`, `max_dt`) to sub-divide large requested steps and clamp unstable `dt` requests to a safe minimum (`kMinStableDt`). `SimulationDaemon` applies the same scheduling internally, so hosts should pass their requested `dt` and optionally surface any clamping/sub-stepping to users.
 

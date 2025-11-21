@@ -14,36 +14,9 @@
 #include "simulation/model_timing.hpp"
 #include "simulation/vehicle_simulator.hpp"
 #include "telemetry/telemetry.hpp"
+#include "simulation/user_input.hpp"
 
 namespace velox::simulation {
-
-struct UserInputLimits {
-    double min_throttle{0.0};
-    double max_throttle{1.0};
-    double min_brake{0.0};
-    double max_brake{1.0};
-    double min_steering_nudge{-1.0};
-    double max_steering_nudge{1.0};
-    double min_drift_toggle{0.0};
-    double max_drift_toggle{1.0};
-};
-
-struct UserInput {
-    controllers::longitudinal::DriverIntent longitudinal{};
-    double                                  steering_nudge = 0.0;
-    std::optional<double>                   drift_toggle{};
-    double                                  timestamp{0.0};
-    double                                  dt{0.0};
-
-    [[nodiscard]] UserInput clamped(const UserInputLimits& limits = {}) const;
-    void validate(const UserInputLimits& limits = {}) const;
-};
-
-// Transmission/gear inputs are intentionally omitted to keep the interface EV-first.
-// If an ICE powertrain is added in the future, prefer introducing a separate
-// powertrain control block rather than surfacing raw gearbox state here.
-
-inline constexpr UserInputLimits kDefaultUserInputLimits{};
 
 struct ResetParams {
     std::optional<ModelType> model{};
@@ -123,6 +96,8 @@ private:
     std::optional<controllers::SteeringWheel>             steering_wheel_{};
     std::optional<controllers::FinalSteerController>       final_steer_{};
     std::optional<controllers::longitudinal::FinalAccelController> accel_controller_{};
+    controllers::longitudinal::PowertrainConfig            powertrain_config_{};
+    UserInputLimits                                        input_limits_{kDefaultUserInputLimits};
 
     logging::LogSinkPtr log_sink_{};
 
@@ -135,6 +110,7 @@ private:
     void rebuild_controllers();
     void rebuild_safety(const LowSpeedSafetyConfig& safety_cfg);
     void rebuild_simulator(double dt, const std::vector<double>& initial_state);
+    void rebuild_input_limits();
     telemetry::SimulationTelemetry compute_telemetry(
         const controllers::longitudinal::ControllerOutput& accel_output,
         const controllers::SteeringWheel::Output& steering_input,

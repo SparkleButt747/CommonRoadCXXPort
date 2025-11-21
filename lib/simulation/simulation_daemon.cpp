@@ -16,13 +16,56 @@
 
 namespace velox::simulation {
 
+UserInputLimits UserInputLimits::from_vehicle(const controllers::SteeringWheel* steering_wheel,
+                                              const models::VehicleParameters& params,
+                                              const controllers::longitudinal::PowertrainConfig* powertrain_cfg)
+{
+    UserInputLimits limits{};
+    if (steering_wheel) {
+        limits.min_steering_angle = -steering_wheel->config().max_angle;
+        limits.max_steering_angle = steering_wheel->config().max_angle;
+    } else {
+        limits.min_steering_angle = params.steering.min;
+        limits.max_steering_angle = params.steering.max;
+    }
+
+    const double max_drive_torque = powertrain_cfg ? powertrain_cfg->max_drive_torque : 0.0;
+    const double max_regen_torque = powertrain_cfg ? powertrain_cfg->max_regen_torque : 0.0;
+
+    const double front_split = params.T_se;
+    const double rear_split  = 1.0 - front_split;
+
+    if (front_split > 0.0) {
+        limits.min_axle_torque.push_back(-max_regen_torque);
+        limits.max_axle_torque.push_back(max_drive_torque);
+    }
+    if (rear_split > 0.0) {
+        limits.min_axle_torque.push_back(-max_regen_torque);
+        limits.max_axle_torque.push_back(max_drive_torque);
+    }
+
+    return limits;
+}
+
 UserInput UserInput::clamped(const UserInputLimits& limits) const
 {
     validate(limits);
     UserInput copy = *this;
-    copy.longitudinal.throttle = std::clamp(copy.longitudinal.throttle, limits.min_throttle, limits.max_throttle);
-    copy.longitudinal.brake    = std::clamp(copy.longitudinal.brake, limits.min_brake, limits.max_brake);
-    copy.steering_nudge        = std::clamp(copy.steering_nudge, limits.min_steering_nudge, limits.max_steering_nudge);
+    if (control_mode == ControlMode::Keyboard) {
+        copy.longitudinal.throttle =
+            std::clamp(copy.longitudinal.throttle, limits.min_throttle, limits.max_throttle);
+        copy.longitudinal.brake = std::clamp(copy.longitudinal.brake, limits.min_brake, limits.max_brake);
+        copy.steering_nudge     = std::clamp(copy.steering_nudge, limits.min_steering_nudge, limits.max_steering_nudge);
+    } else {
+        copy.steering_angle = std::clamp(copy.steering_angle, limits.min_steering_angle, limits.max_steering_angle);
+
+        if (copy.axle_torques.size() == limits.min_axle_torque.size() &&
+            limits.min_axle_torque.size() == limits.max_axle_torque.size()) {
+            for (std::size_t i = 0; i < copy.axle_torques.size(); ++i) {
+                copy.axle_torques[i] = std::clamp(copy.axle_torques[i], limits.min_axle_torque[i], limits.max_axle_torque[i]);
+            }
+        }
+    }
     if (copy.drift_toggle.has_value()) {
         copy.drift_toggle = std::clamp(*copy.drift_toggle, limits.min_drift_toggle, limits.max_drift_toggle);
     }
@@ -61,20 +104,51 @@ void UserInput::validate(const UserInputLimits& limits) const
         throw ::velox::errors::InputError(VELOX_LOC(oss.str()));
     }
 
-    require_finite(longitudinal.throttle, "longitudinal.throttle");
-    require_in_range(longitudinal.throttle,
-                     "longitudinal.throttle",
-                     limits.min_throttle,
-                     limits.max_throttle);
+    switch (control_mode) {
+        case ControlMode::Keyboard:
+            require_finite(longitudinal.throttle, "longitudinal.throttle");
+            require_in_range(longitudinal.throttle,
+                             "longitudinal.throttle",
+                             limits.min_throttle,
+                             limits.max_throttle);
 
-    require_finite(longitudinal.brake, "longitudinal.brake");
-    require_in_range(longitudinal.brake, "longitudinal.brake", limits.min_brake, limits.max_brake);
+            require_finite(longitudinal.brake, "longitudinal.brake");
+            require_in_range(longitudinal.brake, "longitudinal.brake", limits.min_brake, limits.max_brake);
 
-    require_finite(steering_nudge, "steering_nudge");
-    require_in_range(steering_nudge,
-                     "steering_nudge",
-                     limits.min_steering_nudge,
-                     limits.max_steering_nudge);
+            require_finite(steering_nudge, "steering_nudge");
+            require_in_range(steering_nudge,
+                             "steering_nudge",
+                             limits.min_steering_nudge,
+                             limits.max_steering_nudge);
+            break;
+        case ControlMode::Direct: {
+            require_finite(steering_angle, "steering_angle");
+            require_in_range(steering_angle, "steering_angle", limits.min_steering_angle, limits.max_steering_angle);
+
+            const bool enforce_torque_limits = !limits.min_axle_torque.empty() || !limits.max_axle_torque.empty() ||
+                                               !axle_torques.empty();
+            if (enforce_torque_limits) {
+                if (limits.min_axle_torque.size() != limits.max_axle_torque.size()) {
+                    throw ::velox::errors::InputError(
+                        VELOX_LOC("UserInputLimits torque bounds must be sized consistently"));
+                }
+                if (axle_torques.size() != limits.min_axle_torque.size()) {
+                    std::ostringstream oss;
+                    oss << "UserInput.axle_torques length " << axle_torques.size()
+                        << " does not match driven axle count " << limits.min_axle_torque.size();
+                    throw ::velox::errors::InputError(VELOX_LOC(oss.str()));
+                }
+
+                for (std::size_t i = 0; i < axle_torques.size(); ++i) {
+                    require_finite(axle_torques[i], "axle_torques");
+                    require_in_range(axle_torques[i], "axle_torques", limits.min_axle_torque[i], limits.max_axle_torque[i]);
+                }
+            }
+            break;
+        }
+        default:
+            throw ::velox::errors::InputError(VELOX_LOC("Unknown UserInput control mode"));
+    }
 
     if (drift_toggle.has_value()) {
         require_finite(*drift_toggle, "drift_toggle");
@@ -302,7 +376,7 @@ telemetry::SimulationTelemetry SimulationDaemon::step(const UserInput& input)
             throw ::velox::errors::SimulationError(VELOX_MODEL("SimulationDaemon not initialized", model_));
         }
 
-        auto sanitized_input = input.clamped(kDefaultUserInputLimits);
+        auto sanitized_input = input.clamped(input_limits_);
         log_clamped_input(input, sanitized_input);
 
         if (sanitized_input.drift_toggle.has_value()) {
@@ -398,16 +472,18 @@ void SimulationDaemon::rebuild_controllers()
     const auto aero_cfg         = configs_.load_aero_config();
     const auto rolling_cfg      = configs_.load_rolling_resistance_config();
     const auto brake_cfg        = configs_.load_brake_config();
-    const auto powertrain_cfg   = configs_.load_powertrain_config();
+    powertrain_config_          = configs_.load_powertrain_config();
     const auto accel_controller = configs_.load_final_accel_controller_config();
 
     accel_controller_.emplace(params_.m,
                               params_.R_w,
-                              powertrain_cfg,
+                              powertrain_config_,
                               aero_cfg,
                               rolling_cfg,
                               brake_cfg,
                               accel_controller);
+
+    rebuild_input_limits();
 }
 
 void SimulationDaemon::rebuild_safety(const LowSpeedSafetyConfig& safety_cfg)
@@ -424,6 +500,12 @@ void SimulationDaemon::rebuild_simulator(double dt, const std::vector<double>& i
     simulator_ = std::make_unique<VehicleSimulator>(model_interface_, params_, dt, *safety_);
     simulator_->reset(initial_state);
     simulator_->safety().set_drift_enabled(drift_enabled_);
+}
+
+void SimulationDaemon::rebuild_input_limits()
+{
+    input_limits_ = UserInputLimits::from_vehicle(
+        steering_wheel_ ? &(*steering_wheel_) : nullptr, params_, accel_controller_ ? &powertrain_config_ : nullptr);
 }
 
 telemetry::SimulationTelemetry SimulationDaemon::compute_telemetry(
@@ -465,23 +547,42 @@ void SimulationDaemon::log_clamped_input(const UserInput& original, const UserIn
     if (changed(original.longitudinal.throttle, clamped.longitudinal.throttle)) {
         std::ostringstream oss;
         oss << "Throttle request clamped from " << original.longitudinal.throttle << " to "
-            << clamped.longitudinal.throttle << " within [" << kDefaultUserInputLimits.min_throttle
-            << ", " << kDefaultUserInputLimits.max_throttle << "]";
+            << clamped.longitudinal.throttle << " within [" << input_limits_.min_throttle << ", "
+            << input_limits_.max_throttle << "]";
         log_warning(oss.str());
     }
     if (changed(original.longitudinal.brake, clamped.longitudinal.brake)) {
         std::ostringstream oss;
         oss << "Brake request clamped from " << original.longitudinal.brake << " to "
-            << clamped.longitudinal.brake << " within [" << kDefaultUserInputLimits.min_brake << ", "
-            << kDefaultUserInputLimits.max_brake << "]";
+            << clamped.longitudinal.brake << " within [" << input_limits_.min_brake << ", "
+            << input_limits_.max_brake << "]";
         log_warning(oss.str());
     }
     if (changed(original.steering_nudge, clamped.steering_nudge)) {
         std::ostringstream oss;
         oss << "Steering nudge clamped from " << original.steering_nudge << " to "
-            << clamped.steering_nudge << " within [" << kDefaultUserInputLimits.min_steering_nudge << ", "
-            << kDefaultUserInputLimits.max_steering_nudge << "]";
+            << clamped.steering_nudge << " within [" << input_limits_.min_steering_nudge << ", "
+            << input_limits_.max_steering_nudge << "]";
         log_warning(oss.str());
+    }
+    if (changed(original.steering_angle, clamped.steering_angle)) {
+        std::ostringstream oss;
+        oss << "Steering angle clamped from " << original.steering_angle << " to " << clamped.steering_angle
+            << " within [" << input_limits_.min_steering_angle << ", " << input_limits_.max_steering_angle << "]";
+        log_warning(oss.str());
+    }
+
+    const auto torque_bounds_match = input_limits_.min_axle_torque.size() == input_limits_.max_axle_torque.size();
+    if (torque_bounds_match && clamped.axle_torques.size() == input_limits_.min_axle_torque.size()) {
+        for (std::size_t i = 0; i < clamped.axle_torques.size(); ++i) {
+            if (changed(original.axle_torques[i], clamped.axle_torques[i])) {
+                std::ostringstream oss;
+                oss << "Axle torque #" << i << " clamped from " << original.axle_torques[i] << " to "
+                    << clamped.axle_torques[i] << " within [" << input_limits_.min_axle_torque[i] << ", "
+                    << input_limits_.max_axle_torque[i] << "]";
+                log_warning(oss.str());
+            }
+        }
     }
 }
 
