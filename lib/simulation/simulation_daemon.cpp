@@ -415,9 +415,6 @@ telemetry::SimulationTelemetry SimulationDaemon::step(const UserInput& input)
                 break;
             }
             case ControlMode::Direct: {
-                const double total_torque    = std::accumulate(sanitized_input.axle_torques.begin(),
-                                                               sanitized_input.axle_torques.end(),
-                                                               0.0);
                 const double commanded_accel = direct_acceleration_from_torque(sanitized_input.axle_torques);
                 const double total_force     = commanded_accel * params_.m;
 
