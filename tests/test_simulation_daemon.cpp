@@ -161,6 +161,126 @@ void test_drift_reset_behavior()
     assert(std::abs(daemon.steering_controller()->last_output().angle) == 0.0);
 }
 
+void test_direct_mode_torque_and_steering_limits()
+{
+    vsim::SimulationDaemon::InitParams init{};
+    init.model          = vsim::ModelType::ST;
+    init.vehicle_id     = 1;
+    init.control_mode   = vsim::ControlMode::Direct;
+    init.config_root    = "config";
+    init.parameter_root = "parameters";
+
+    vsim::SimulationDaemon daemon(init);
+
+    vsim::ResetParams reset{};
+    reset.control_mode  = vsim::ControlMode::Direct;
+    reset.initial_state = std::vector<double>(7, 0.0);
+    reset.dt            = 0.05;
+    daemon.reset(reset);
+
+    assert(daemon.control_mode() == vsim::ControlMode::Direct);
+    assert(daemon.steering_controller());
+    const double max_angle = daemon.steering_controller()->max_angle();
+
+    vsim::UserInput over_limit{};
+    over_limit.control_mode  = vsim::ControlMode::Direct;
+    over_limit.timestamp     = 0.0;
+    over_limit.dt            = 0.05;
+    over_limit.steering_angle = max_angle * 2.0;
+    over_limit.axle_torques  = {0.0};
+    bool rejected            = false;
+    try {
+        (void)daemon.step(over_limit);
+    } catch (const ::velox::errors::InputError&) {
+        rejected = true;
+    }
+    assert(rejected);
+
+    vsim::UserInput direct{};
+    direct.control_mode   = vsim::ControlMode::Direct;
+    direct.timestamp      = 0.0;
+    direct.dt             = 0.05;
+    direct.steering_angle = max_angle;
+    const double commanded_torque = 200.0;
+    direct.axle_torques           = {commanded_torque};
+
+    const auto telemetry = daemon.step(direct);
+    assert(telemetry.steering.desired_angle <= max_angle + 1e-9);
+    assert(telemetry.steering.actual_angle <= max_angle + 1e-9);
+    assert(std::abs(telemetry.powertrain.drive_torque - commanded_torque) < 1e-6);
+    assert(std::abs(telemetry.powertrain.total_torque - commanded_torque) < 1e-6);
+    assert(std::abs(telemetry.controller.acceleration) > 0.0);
+}
+
+void test_mode_switch_does_not_leak_state()
+{
+    vsim::SimulationDaemon::InitParams init{};
+    init.model          = vsim::ModelType::ST;
+    init.vehicle_id     = 1;
+    init.control_mode   = vsim::ControlMode::Keyboard;
+    init.config_root    = "config";
+    init.parameter_root = "parameters";
+
+    vsim::SimulationDaemon daemon(init);
+
+    vsim::ResetParams keyboard_reset{};
+    keyboard_reset.control_mode  = vsim::ControlMode::Keyboard;
+    keyboard_reset.initial_state = std::vector<double>(7, 0.0);
+    keyboard_reset.dt            = 0.1;
+    daemon.reset(keyboard_reset);
+
+    vsim::UserInput keyboard_input{};
+    keyboard_input.timestamp             = 0.0;
+    keyboard_input.dt                    = 0.1;
+    keyboard_input.longitudinal.throttle = 0.6;
+    keyboard_input.longitudinal.brake    = 0.0;
+    keyboard_input.steering_nudge        = 0.2;
+
+    const auto keyboard_telem = daemon.step(keyboard_input);
+    assert(keyboard_telem.controller.throttle > 0.0);
+    assert(std::abs(keyboard_telem.steering.desired_angle) > 0.0);
+
+    vsim::ResetParams direct_reset{};
+    direct_reset.control_mode  = vsim::ControlMode::Direct;
+    direct_reset.initial_state = std::vector<double>(7, 0.0);
+    direct_reset.dt            = 0.05;
+    daemon.reset(direct_reset);
+
+    assert(daemon.control_mode() == vsim::ControlMode::Direct);
+
+    vsim::UserInput direct{};
+    direct.control_mode   = vsim::ControlMode::Direct;
+    direct.timestamp      = 0.0;
+    direct.dt             = 0.05;
+    direct.steering_angle = daemon.steering_controller()->max_angle() * 0.5;
+    direct.axle_torques   = {120.0};
+
+    const auto direct_telem = daemon.step(direct);
+    assert(direct_telem.controller.throttle == 0.0);
+    assert(direct_telem.powertrain.total_torque > 0.0);
+    assert(direct_telem.steering.desired_angle > 0.0);
+
+    vsim::ResetParams coasting_reset{};
+    coasting_reset.control_mode  = vsim::ControlMode::Keyboard;
+    coasting_reset.initial_state = std::vector<double>(7, 0.0);
+    coasting_reset.dt            = 0.1;
+    daemon.reset(coasting_reset);
+
+    assert(daemon.control_mode() == vsim::ControlMode::Keyboard);
+
+    vsim::UserInput coasting{};
+    coasting.timestamp             = 0.0;
+    coasting.dt                    = 0.1;
+    coasting.longitudinal.throttle = 0.0;
+    coasting.longitudinal.brake    = 0.0;
+    coasting.steering_nudge        = 0.0;
+
+    const auto coasting_telem = daemon.step(coasting);
+    assert(std::abs(coasting_telem.controller.drive_force) < 1e-9);
+    assert(std::abs(coasting_telem.powertrain.total_torque) < 1e-9);
+    assert(std::abs(coasting_telem.steering.actual_angle) <= daemon.steering_controller()->max_angle());
+}
+
 void compare_row(const ReferenceRow& ref, const vt::SimulationTelemetry& telem)
 {
     auto close = [](double a, double b, double tol = 1e-6) { return std::abs(a - b) <= tol; };
@@ -186,6 +306,8 @@ int main()
 {
     test_invalid_inputs();
     test_drift_reset_behavior();
+    test_direct_mode_torque_and_steering_limits();
+    test_mode_switch_does_not_leak_state();
 
     const auto reference = load_reference("tests/output/zero_input_reference.csv");
     if (reference.empty()) {
