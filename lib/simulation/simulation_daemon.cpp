@@ -303,6 +303,7 @@ SimulationDaemon::SimulationDaemon(const InitParams& init)
     , configs_(init.config_root, init.parameter_root)
     , model_(init.model)
     , timing_(configs_.load_model_timing(init.model))
+    , control_mode_(init.control_mode)
 {
     init_.use_default_log_sink();
     log_sink_ = init_.log_sink;
@@ -311,6 +312,7 @@ SimulationDaemon::SimulationDaemon(const InitParams& init)
 
     const auto initial_safety_cfg = configs_.load_low_speed_safety_config(init.model);
     drift_enabled_                = init.drift_enabled.value_or(initial_safety_cfg.drift_enabled);
+    init_.control_mode            = control_mode_;
 
     // Initial wiring occurs during construction
     const auto default_state = build_model_interface(model_).init_fn({}, params_);
@@ -330,6 +332,10 @@ void SimulationDaemon::reset(const ResetParams& params)
             init_.vehicle_id = *params.vehicle_id;
             load_vehicle_parameters(*params.vehicle_id);
         }
+        if (params.control_mode) {
+            control_mode_      = *params.control_mode;
+            init_.control_mode = control_mode_;
+        }
 
         timing_         = ModelTiming(configs_.load_model_timing(model_));
         model_interface_ = build_model_interface(model_);
@@ -343,6 +349,7 @@ void SimulationDaemon::reset(const ResetParams& params)
             drift_enabled_ = safety_cfg.drift_enabled;
         }
         init_.drift_enabled = drift_enabled_;
+        init_.control_mode  = control_mode_;
         rebuild_safety(safety_cfg);
 
         const double initial_request = params.dt.value_or(timing_.info().nominal_dt);
@@ -381,8 +388,10 @@ telemetry::SimulationTelemetry SimulationDaemon::step(const UserInput& input)
             throw ::velox::errors::SimulationError(VELOX_MODEL("SimulationDaemon not initialized", model_));
         }
 
-        auto sanitized_input = input.clamped(input_limits_);
-        log_clamped_input(input, sanitized_input);
+        UserInput working_input = input;
+        working_input.control_mode = control_mode_;
+        auto sanitized_input      = working_input.clamped(input_limits_);
+        log_clamped_input(working_input, sanitized_input);
 
         if (sanitized_input.drift_toggle.has_value()) {
             set_drift_enabled(*sanitized_input.drift_toggle >= 0.5);

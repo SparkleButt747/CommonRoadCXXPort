@@ -20,6 +20,7 @@ A lightweight C++17/20 port of the CommonRoad vehicle models with a small SDL/Im
 
 ### Simulation daemon
 - `velox::simulation::SimulationDaemon` owns the model interface, controllers, safety system, and a `VehicleSimulator`. Construct it with `SimulationDaemon::InitParams` to select the model, vehicle id, configuration root, and parameter root.
+- `InitParams::control_mode` selects the default control path (keyboard-style throttle/brake + steering nudge vs. direct torque/angle inputs); it defaults to `Keyboard` and can be overridden per-reset through `ResetParams::control_mode`.
 - `reset(const ResetParams&)` swaps models/vehicles, seeds the simulator, and reinitializes controllers and safety systems while preserving the configured roots.
 - `step(const UserInput&)` advances the simulation by one request (internally sub-stepping as required by timing constraints) and returns a `telemetry::SimulationTelemetry` snapshot.
 - `snapshot()` returns the last telemetry, current state vector, timestep, and accumulated simulated time without mutating the simulation.
@@ -27,6 +28,7 @@ A lightweight C++17/20 port of the CommonRoad vehicle models with a small SDL/Im
 
 ### User input and timing
 - `UserInput` encodes throttle/brake, steering nudge, drift toggles, requested timestep `dt`, the caller’s timestamp, and control-mode specific fields (steering angle and axle torques for direct control). The helper `clamped()` validates input and constrains it using `UserInputLimits` (defaults are exported as `kDefaultUserInputLimits`).
+- Callers can set a default control path through `SimulationDaemon::InitParams`/`ResetParams` and send mode-appropriate fields each step; mode switching no longer requires rebuilding timing.
 - Transmission/gear selection is intentionally kept out of the daemon inputs; if an ICE powertrain is added later, model it via a dedicated powertrain control block rather than exposing gearbox state directly.
 - `ModelTiming` uses per-model `ModelTimingInfo` (`nominal_dt`, `max_dt`) to sub-divide large requested steps and clamp unstable `dt` requests to a safe minimum (`kMinStableDt`). `SimulationDaemon` applies the same scheduling internally, so hosts should pass their requested `dt` and optionally surface any clamping/sub-stepping to users.
 
@@ -83,5 +85,18 @@ Targets:
 - **Throttle/Brake**: `W`/`↑` for throttle, `S`/`↓` for proportional braking (scaled by “Keyboard brake bias”), `Space` for full braking.
 - **Steering**: `A`/`←` left, `D`/`→` right.
 - **Reset**: `R` resets the simulator to the current model/vehicle; `Esc` quits.
+
+CLI/config flags:
+
+- `--control-mode {keyboard|direct}` selects how inputs are interpreted by the daemon.
+- `--steering-angle <rad>` supplies a fixed steering angle when running in direct mode.
+- `--axle-torque <Nm>` may be provided once per driven axle (front then rear); missing entries default to zero torque.
+- `--input-flags <path>` (or `--control-config`) loads the above fields from a YAML file, for example:
+
+```yaml
+control_mode: direct
+steering_angle: 0.05
+axle_torques: [500.0, 500.0]
+```
 
 The demo now relies exclusively on `SimulationDaemon`: all controller wiring, timing sub-steps, telemetry accumulation, and safety enforcement flow through the daemon, mirroring how legacy apps can migrate to the library.
