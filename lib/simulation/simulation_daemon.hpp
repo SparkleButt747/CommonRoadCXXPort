@@ -24,6 +24,7 @@ struct ResetParams {
     std::vector<double>      initial_state{};
     std::optional<double>    dt{};
     std::optional<bool>      drift_enabled{};
+    std::optional<ControlMode> control_mode{};
 };
 
 struct SimulationSnapshot {
@@ -40,16 +41,17 @@ struct SimulationSnapshot {
             int                       vehicle_id{1};
             std::filesystem::path     config_root{};
             std::filesystem::path     parameter_root{};
-        logging::LogSinkPtr       log_sink{};
-        std::optional<bool>       drift_enabled{};
+            logging::LogSinkPtr       log_sink{};
+            std::optional<bool>       drift_enabled{};
+            ControlMode               control_mode{ControlMode::Keyboard};
 
-        void use_default_log_sink()
-        {
-            if (!log_sink) {
-                log_sink = logging::make_console_log_sink();
+            void use_default_log_sink()
+            {
+                if (!log_sink) {
+                    log_sink = logging::make_console_log_sink();
+                }
             }
-        }
-    };
+        };
 
     explicit SimulationDaemon(const InitParams& init);
 
@@ -76,6 +78,7 @@ struct SimulationSnapshot {
     [[nodiscard]] const models::VehicleParameters& vehicle_parameters() const { return params_; }
     [[nodiscard]] ModelType model() const { return model_; }
     [[nodiscard]] bool drift_enabled() const { return drift_enabled_; }
+    [[nodiscard]] ControlMode control_mode() const { return control_mode_; }
     void                set_drift_enabled(bool enabled);
     [[nodiscard]] const telemetry::SimulationTelemetry& telemetry() const { return last_telemetry_; }
 
@@ -112,6 +115,8 @@ private:
     controllers::longitudinal::PowertrainConfig            powertrain_config_{};
     UserInputLimits                                        input_limits_{kDefaultUserInputLimits};
     DrivetrainLayout                                        drivetrain_layout_{};
+
+    ControlMode control_mode_{ControlMode::Keyboard};
 
     logging::LogSinkPtr log_sink_{};
 

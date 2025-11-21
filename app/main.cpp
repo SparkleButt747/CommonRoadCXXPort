@@ -3,8 +3,11 @@
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <vector>
 
 // SDL2
 #if defined(__has_include)
@@ -27,10 +30,12 @@
 #include "simulation/model_timing.hpp"
 #include "simulation/simulation_daemon.hpp"
 #include "telemetry/telemetry_imgui.hpp"
+#include "yaml-cpp/yaml.h"
 
-namespace vsim  = velox::simulation;
-namespace vio   = velox::io;
-namespace vtel  = velox::telemetry;
+namespace vsim   = velox::simulation;
+namespace vio    = velox::io;
+namespace vtel   = velox::telemetry;
+namespace vmodel = velox::models;
 
 namespace {
 
@@ -45,6 +50,113 @@ struct SimulationUiState {
     std::string     dt_warning{};
     double          dt_warning_expires{0.0};
 };
+
+struct InputFlagOverrides {
+    std::optional<vsim::ControlMode>          control_mode{};
+    std::optional<double>                     steering_angle{};
+    std::optional<std::vector<double>>        axle_torques{};
+    std::optional<std::filesystem::path>      config_path{};
+};
+
+struct InputFlags {
+    vsim::ControlMode control_mode{vsim::ControlMode::Keyboard};
+    double            steering_angle{0.0};
+    std::vector<double> axle_torques{};
+};
+
+std::optional<vsim::ControlMode> parse_control_mode(std::string_view mode)
+{
+    if (mode == "keyboard") {
+        return vsim::ControlMode::Keyboard;
+    }
+    if (mode == "direct") {
+        return vsim::ControlMode::Direct;
+    }
+    return std::nullopt;
+}
+
+InputFlagOverrides parse_command_line(int argc, char** argv)
+{
+    InputFlagOverrides overrides{};
+    for (int i = 1; i < argc; ++i) {
+        const std::string arg = argv[i];
+        if ((arg == "--control-mode" || arg == "--mode") && i + 1 < argc) {
+            const auto parsed = parse_control_mode(argv[++i]);
+            if (parsed) {
+                overrides.control_mode = parsed;
+            } else {
+                std::fprintf(stderr, "Unknown control mode '%s'; expected 'keyboard' or 'direct'\n", argv[i]);
+            }
+        } else if ((arg == "--input-flags" || arg == "--control-config") && i + 1 < argc) {
+            overrides.config_path = std::filesystem::path(argv[++i]);
+        } else if (arg == "--steering-angle" && i + 1 < argc) {
+            overrides.steering_angle = std::stod(argv[++i]);
+        } else if (arg == "--axle-torque" && i + 1 < argc) {
+            const double torque = std::stod(argv[++i]);
+            if (!overrides.axle_torques) {
+                overrides.axle_torques = std::vector<double>{};
+            }
+            overrides.axle_torques->push_back(torque);
+        }
+    }
+    return overrides;
+}
+
+InputFlags load_input_flags(const std::filesystem::path& path, InputFlags base)
+{
+    try {
+        const auto node = YAML::LoadFile(path.string());
+        if (node["control_mode"]) {
+            const auto parsed = parse_control_mode(node["control_mode"].as<std::string>());
+            if (parsed) {
+                base.control_mode = *parsed;
+            }
+        }
+        if (node["steering_angle"]) {
+            base.steering_angle = node["steering_angle"].as<double>();
+        }
+        if (node["axle_torques"]) {
+            base.axle_torques = node["axle_torques"].as<std::vector<double>>();
+        }
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "Failed to load input flags from %s: %s\n", path.string().c_str(), e.what());
+    }
+    return base;
+}
+
+InputFlags merge_flags(const InputFlags& defaults, const InputFlagOverrides& overrides)
+{
+    InputFlags merged = defaults;
+    if (overrides.control_mode) {
+        merged.control_mode = *overrides.control_mode;
+    }
+    if (overrides.steering_angle) {
+        merged.steering_angle = *overrides.steering_angle;
+    }
+    if (overrides.axle_torques) {
+        merged.axle_torques = *overrides.axle_torques;
+    }
+    return merged;
+}
+
+std::vector<double> normalize_axle_torques(const vmodel::VehicleParameters& params,
+                                           const std::vector<double>& preferred)
+{
+    std::size_t driven_axles = 0;
+    if (params.T_se > 0.0) {
+        ++driven_axles;
+    }
+    if ((1.0 - params.T_se) > 0.0) {
+        ++driven_axles;
+    }
+    driven_axles = std::max<std::size_t>(1, driven_axles);
+
+    std::vector<double> torques(driven_axles, 0.0);
+    for (std::size_t i = 0; i < driven_axles && i < preferred.size(); ++i) {
+        torques[i] = preferred[i];
+    }
+    return torques;
+}
 
 vsim::ModelTiming::StepSchedule plan_schedule(const vsim::ModelTimingInfo& info, double requested_dt)
 {
@@ -139,8 +251,15 @@ void draw_car(SDL_Renderer* renderer,
 
 } // namespace
 
-int main(int, char**)
+int main(int argc, char** argv)
 {
+    const auto cli_overrides = parse_command_line(argc, argv);
+    InputFlags input_flags{};
+    if (cli_overrides.config_path) {
+        input_flags = load_input_flags(*cli_overrides.config_path, input_flags);
+    }
+    input_flags = merge_flags(input_flags, cli_overrides);
+
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_GAMECONTROLLER) != 0) {
         std::fprintf(stderr, "Error: SDL_Init() failed: %s\n", SDL_GetError());
         return 1;
@@ -204,10 +323,17 @@ int main(int, char**)
         .vehicle_id = kVehicleIds[ui.vehicle_index],
         .config_root = config_manager.config_root(),
         .parameter_root = config_manager.parameter_root(),
-        .log_sink = {}
+        .log_sink = {},
+        .drift_enabled = {},
+        .control_mode = input_flags.control_mode
     });
 
     vtel::SimulationTelemetry telemetry = daemon.telemetry();
+
+    auto direct_axle_torques = normalize_axle_torques(daemon.vehicle_parameters(), input_flags.axle_torques);
+    auto refresh_direct_inputs = [&]() {
+        direct_axle_torques = normalize_axle_torques(daemon.vehicle_parameters(), input_flags.axle_torques);
+    };
 
     bool  running            = true;
     float keyboard_brake_bias = 1.0f;
@@ -249,38 +375,51 @@ int main(int, char**)
                 params.model      = ui.model;
                 params.vehicle_id = kVehicleIds[ui.vehicle_index];
                 params.dt         = schedule.clamped_dt;
+                params.control_mode = input_flags.control_mode;
                 daemon.reset(params);
                 telemetry = daemon.telemetry();
+                refresh_direct_inputs();
                 current_input.timestamp = 0.0;
             } catch (const std::exception& e) {
                 return shutdown_with_message(e.what());
             }
         }
 
-        const Uint8* keys = SDL_GetKeyboardState(nullptr);
+        current_input.timestamp      = telemetry.totals.simulation_time_s;
+        current_input.dt             = schedule.clamped_dt;
+        current_input.control_mode   = input_flags.control_mode;
 
-        double throttle_cmd = 0.0;
-        double brake_cmd    = 0.0;
-        if (keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_UP])    throttle_cmd = 1.0;
-        if (keys[SDL_SCANCODE_S] || keys[SDL_SCANCODE_DOWN])
-            brake_cmd = std::max(brake_cmd, static_cast<double>(keyboard_brake_bias));
-        if (keys[SDL_SCANCODE_SPACE])                          brake_cmd = 1.0;
-        throttle_cmd = std::clamp(throttle_cmd, 0.0, 1.0);
-        brake_cmd    = std::clamp(brake_cmd, 0.0, 1.0);
-        if (brake_cmd > 0.0) {
-            throttle_cmd = 0.0;
+        if (input_flags.control_mode == vsim::ControlMode::Keyboard) {
+            const Uint8* keys = SDL_GetKeyboardState(nullptr);
+
+            double throttle_cmd = 0.0;
+            double brake_cmd    = 0.0;
+            if (keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_UP])    throttle_cmd = 1.0;
+            if (keys[SDL_SCANCODE_S] || keys[SDL_SCANCODE_DOWN])
+                brake_cmd = std::max(brake_cmd, static_cast<double>(keyboard_brake_bias));
+            if (keys[SDL_SCANCODE_SPACE])                          brake_cmd = 1.0;
+            throttle_cmd = std::clamp(throttle_cmd, 0.0, 1.0);
+            brake_cmd    = std::clamp(brake_cmd, 0.0, 1.0);
+            if (brake_cmd > 0.0) {
+                throttle_cmd = 0.0;
+            }
+
+            double steer_nudge = 0.0;
+            if (keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_LEFT])  steer_nudge += 1.0;
+            if (keys[SDL_SCANCODE_D] || keys[SDL_SCANCODE_RIGHT]) steer_nudge -= 1.0;
+            steer_nudge = std::clamp(steer_nudge, -1.0, 1.0);
+
+            current_input.steering_nudge        = steer_nudge;
+            current_input.longitudinal.throttle = throttle_cmd;
+            current_input.longitudinal.brake    = brake_cmd;
+            current_input.steering_angle        = 0.0;
+            current_input.axle_torques.clear();
+        } else {
+            current_input.steering_nudge        = 0.0;
+            current_input.longitudinal          = {};
+            current_input.steering_angle        = input_flags.steering_angle;
+            current_input.axle_torques          = direct_axle_torques;
         }
-
-        double steer_nudge = 0.0;
-        if (keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_LEFT])  steer_nudge += 1.0;
-        if (keys[SDL_SCANCODE_D] || keys[SDL_SCANCODE_RIGHT]) steer_nudge -= 1.0;
-        steer_nudge = std::clamp(steer_nudge, -1.0, 1.0);
-
-        current_input.timestamp             = telemetry.totals.simulation_time_s;
-        current_input.dt                    = schedule.clamped_dt;
-        current_input.steering_nudge        = steer_nudge;
-        current_input.longitudinal.throttle = throttle_cmd;
-        current_input.longitudinal.brake    = brake_cmd;
 
         bool input_valid = true;
         vsim::UserInput sanitized_input{};
@@ -329,15 +468,22 @@ int main(int, char**)
                                detector_forced ? " [detector]" : "");
             ImGui::Separator();
 
-            ImGui::Text("Keyboard controls");
-            ImGui::Text("W/Up: throttle  A/D or \u2190/\u2192: steer  R: reset  ESC: quit");
-            if (ImGui::SliderFloat("Keyboard brake bias", &keyboard_brake_bias, 0.0f, 1.0f, "%.2f")) {
-                keyboard_brake_bias = std::clamp(keyboard_brake_bias, 0.0f, 1.0f);
+            const bool keyboard_mode = input_flags.control_mode == vsim::ControlMode::Keyboard;
+            ImGui::Text("Control mode: %s", keyboard_mode ? "Keyboard" : "Direct (torque/angle)");
+            if (keyboard_mode) {
+                ImGui::Text("Keyboard controls");
+                ImGui::Text("W/Up: throttle  A/D or \u2190/\u2192: steer  R: reset  ESC: quit");
+                if (ImGui::SliderFloat("Keyboard brake bias", &keyboard_brake_bias, 0.0f, 1.0f, "%.2f")) {
+                    keyboard_brake_bias = std::clamp(keyboard_brake_bias, 0.0f, 1.0f);
+                }
+                ImGui::TextWrapped(
+                    "S/Down applies %.0f%%%% braking using the bias slider for proportional stops."
+                    " Hold SPACE to request 100%%%% emergency braking.",
+                    keyboard_brake_bias * 100.0f);
+            } else {
+                ImGui::TextWrapped(
+                    "Direct control uses fixed steering angle and axle torques supplied via CLI or YAML flags.");
             }
-            ImGui::TextWrapped(
-                "S/Down applies %.0f%%%% braking using the bias slider for proportional stops."
-                " Hold SPACE to request 100%%%% emergency braking.",
-                keyboard_brake_bias * 100.0f);
             if (input_error_expires > now_seconds) {
                 ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f),
                                    "Input error: %s",
@@ -360,9 +506,11 @@ int main(int, char**)
                     params.model      = ui.model;
                     params.vehicle_id = kVehicleIds[ui.vehicle_index];
                     params.dt         = ui.requested_dt;
+                    params.control_mode = input_flags.control_mode;
                     daemon.reset(params);
                     telemetry = daemon.telemetry();
                     ui.dt_warning.clear();
+                    refresh_direct_inputs();
                 } catch (const std::exception& e) {
                     return shutdown_with_message(e.what());
                 }
@@ -380,9 +528,11 @@ int main(int, char**)
                     params.model      = ui.model;
                     params.vehicle_id = kVehicleIds[ui.vehicle_index];
                     params.dt         = ui.requested_dt;
+                    params.control_mode = input_flags.control_mode;
                     daemon.reset(params);
                     telemetry = daemon.telemetry();
                     ui.dt_warning.clear();
+                    refresh_direct_inputs();
                 } catch (const std::exception& e) {
                     return shutdown_with_message(e.what());
                 }
@@ -404,9 +554,18 @@ int main(int, char**)
             ImGui::Separator();
             ImGui::Text("Inputs:");
             ImGui::Text("Steer nudge: %+6.3f", current_input.steering_nudge);
-            ImGui::Text("Accel request: %+6.3f m/s^2", current_input.longitudinal.throttle - current_input.longitudinal.brake);
-            ImGui::Text("Throttle cmd:  %4.2f", current_input.longitudinal.throttle);
-            ImGui::Text("Brake cmd:     %4.2f", current_input.longitudinal.brake);
+            if (keyboard_mode) {
+                ImGui::Text("Accel request: %+6.3f m/s^2", current_input.longitudinal.throttle - current_input.longitudinal.brake);
+                ImGui::Text("Throttle cmd:  %4.2f", current_input.longitudinal.throttle);
+                ImGui::Text("Brake cmd:     %4.2f", current_input.longitudinal.brake);
+            } else {
+                ImGui::Text("Steering angle: %+6.3f rad", current_input.steering_angle);
+                if (!current_input.axle_torques.empty()) {
+                    for (std::size_t i = 0; i < current_input.axle_torques.size(); ++i) {
+                        ImGui::Text("Axle torque %zu: %+7.2f Nm", i, current_input.axle_torques[i]);
+                    }
+                }
+            }
 
             ImGui::Separator();
             ImGui::Text("State:");
