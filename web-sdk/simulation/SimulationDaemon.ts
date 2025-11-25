@@ -12,6 +12,7 @@ import {
 } from '../telemetry/index.js';
 import { ConfigManager } from '../io/ConfigManager.js';
 import { ControlMode, ModelTimingInfo, ModelType } from './types.js';
+import { BackendSnapshot, HybridSimulationBackend, NativeDaemonFactory, SimulationBackend } from './backend.js';
 export { ControlMode, ModelTimingInfo, ModelType } from './types.js';
 
 export interface DriverIntent {
@@ -161,6 +162,7 @@ export interface InitParams {
   drift_enabled?: boolean;
   control_mode?: ControlMode;
   backend?: SimulationBackend;
+  native_factory?: NativeDaemonFactory;
   limits?: UserInputLimits;
   timing?: ModelTimingInfo;
 }
@@ -179,13 +181,6 @@ export interface SimulationSnapshot {
   telemetry: SimulationTelemetry;
   dt: number;
   simulation_time_s: number;
-}
-
-export interface SimulationBackend {
-  reset(state: number[], dt: number): void;
-  step(control: number[], dt: number): void;
-  snapshot(): { state: number[] };
-  speed(): number;
 }
 
 export interface StepSchedule {
@@ -245,45 +240,30 @@ class ModelTiming {
   }
 }
 
-class MockBackend implements SimulationBackend {
-  private pose = new PoseTelemetryState();
-  private velocity = new VelocityTelemetryState();
-  private yaw_rate = 0;
-  private dt = 0;
-
-  reset(state: number[], dt: number): void {
-    this.pose.x = state[0] ?? 0;
-    this.pose.y = state[1] ?? 0;
-    this.pose.yaw = state[2] ?? 0;
-    this.velocity.speed = 0;
-    this.velocity.longitudinal = 0;
-    this.velocity.lateral = 0;
-    this.velocity.yaw_rate = 0;
-    this.yaw_rate = 0;
-    this.dt = dt;
+function mergeTelemetry(base: SimulationTelemetry | undefined, fallbackSpeed: number): SimulationTelemetryState {
+  const telemetry = new SimulationTelemetryState();
+  if (!base) {
+    telemetry.velocity.speed = fallbackSpeed;
+    telemetry.velocity.longitudinal = fallbackSpeed;
+    return telemetry;
   }
-
-  step(control: number[], dt: number): void {
-    const [steer_rate, accel] = control;
-    this.yaw_rate = steer_rate ?? this.yaw_rate;
-    this.velocity.speed = Math.max(0, this.velocity.speed + (accel ?? 0) * dt);
-    const heading = this.pose.yaw;
-    const mean_speed = this.velocity.speed;
-    this.pose.x += mean_speed * Math.cos(heading) * dt;
-    this.pose.y += mean_speed * Math.sin(heading) * dt;
-    this.pose.yaw += this.yaw_rate * dt;
-    this.velocity.longitudinal = mean_speed;
-    this.velocity.lateral = 0;
-    this.velocity.yaw_rate = this.yaw_rate;
-  }
-
-  snapshot(): { state: number[] } {
-    return { state: [this.pose.x, this.pose.y, this.pose.yaw, this.velocity.longitudinal] };
-  }
-
-  speed(): number {
-    return this.velocity.speed;
-  }
+  Object.assign(telemetry.pose, base.pose ?? {});
+  Object.assign(telemetry.velocity, base.velocity ?? {});
+  Object.assign(telemetry.acceleration, base.acceleration ?? {});
+  Object.assign(telemetry.traction, base.traction ?? {});
+  Object.assign(telemetry.steering, base.steering ?? {});
+  Object.assign(telemetry.controller, base.controller ?? {});
+  Object.assign(telemetry.powertrain, base.powertrain ?? {});
+  Object.assign(telemetry.front_axle, base.front_axle ?? {});
+  Object.assign(telemetry.rear_axle, base.rear_axle ?? {});
+  Object.assign(telemetry.totals, base.totals ?? {});
+  telemetry.detector_severity = base.detector_severity ?? telemetry.detector_severity;
+  telemetry.safety_stage = base.safety_stage ?? telemetry.safety_stage;
+  telemetry.detector_forced = base.detector_forced ?? telemetry.detector_forced;
+  telemetry.low_speed_engaged = base.low_speed_engaged ?? telemetry.low_speed_engaged;
+  telemetry.velocity.speed = telemetry.velocity.speed ?? fallbackSpeed;
+  telemetry.velocity.longitudinal = telemetry.velocity.longitudinal ?? telemetry.velocity.speed;
+  return telemetry;
 }
 
 export class SimulationDaemon {
@@ -300,44 +280,38 @@ export class SimulationDaemon {
   private cumulativeEnergy = 0;
   private simulationTime = 0;
   private lastDt: number;
+  ready: Promise<void>;
 
   constructor(private readonly init: InitParams = {}) {
     this.model = init.model ?? ModelType.MB;
     this.vehicleId = init.vehicle_id ?? 1;
     this.driftEnabled = init.drift_enabled ?? false;
     this.controlMode = init.control_mode ?? ControlMode.Keyboard;
-    this.backend = init.backend ?? new MockBackend();
+    this.configManager = new ConfigManager(init.config_root, init.parameter_root);
+    this.backend = init.backend ?? new HybridSimulationBackend({
+      model: this.model,
+      vehicleId: this.vehicleId,
+      configManager: this.configManager,
+      nativeFactory: init.native_factory,
+      driftEnabled: this.driftEnabled,
+    });
     this.limits = init.limits ?? new UserInputLimits();
     const timingInfo = init.timing ?? kDefaultTimings[this.model];
     this.timing = new ModelTiming(timingInfo);
-    this.configManager = new ConfigManager(init.config_root, init.parameter_root);
-    const defaultDt = timingInfo.nominal_dt;
-    this.lastDt = defaultDt;
-    this.backend.reset(init.initial_state ?? [], defaultDt);
+    this.lastDt = timingInfo.nominal_dt;
+    this.ready = this.performReset({
+      model: this.model,
+      vehicle_id: this.vehicleId,
+      control_mode: this.controlMode,
+      drift_enabled: this.driftEnabled,
+      initial_state: init.initial_state ?? [],
+      dt: timingInfo.nominal_dt,
+    });
   }
 
-  reset(params: ResetParams = {}): void {
-    if (params.model) {
-      this.model = params.model;
-    }
-    if (params.vehicle_id) {
-      this.vehicleId = params.vehicle_id;
-    }
-    if (params.control_mode) {
-      this.controlMode = params.control_mode;
-    }
-    if (params.drift_enabled !== undefined) {
-      this.driftEnabled = params.drift_enabled;
-    }
-    const timingInfo = this.init.timing ?? kDefaultTimings[this.model];
-    this.timing = new ModelTiming(timingInfo);
-    const schedule = this.timing.planSteps(params.dt ?? timingInfo.nominal_dt);
-    this.lastDt = schedule.clamped_dt;
-    this.backend.reset(params.initial_state ?? [], schedule.substeps[0]);
-    this.cumulativeDistance = 0;
-    this.cumulativeEnergy = 0;
-    this.simulationTime = 0;
-    this.lastTelemetry = new SimulationTelemetryState();
+  reset(params: ResetParams = {}): Promise<void> {
+    this.ready = this.performReset(params);
+    return this.ready;
   }
 
   setDriftEnabled(enabled: boolean): void {
@@ -348,16 +322,19 @@ export class SimulationDaemon {
     return this.lastTelemetry;
   }
 
-  snapshot(): SimulationSnapshot {
+  async snapshot(): Promise<SimulationSnapshot> {
+    await this.ready;
+    const snap = this.backend.snapshot();
     return {
-      state: this.backend.snapshot().state,
-      telemetry: this.lastTelemetry,
-      dt: this.lastDt,
-      simulation_time_s: this.simulationTime,
+      state: snap.state,
+      telemetry: snap.telemetry ?? this.lastTelemetry,
+      dt: snap.dt ?? this.lastDt,
+      simulation_time_s: snap.simulation_time_s ?? this.simulationTime,
     };
   }
 
-  step(input: UserInput): SimulationTelemetry {
+  async step(input: UserInput): Promise<SimulationTelemetry> {
+    await this.ready;
     const working: UserInput = { ...input, control_mode: this.controlMode };
     const sanitized = this.limits.clamp(working);
     if (sanitized.drift_toggle !== undefined) {
@@ -381,49 +358,91 @@ export class SimulationDaemon {
 
     for (const dt of schedule.substeps) {
       const control = [steerRate, accelCommand];
-      this.backend.step(control, dt);
-      this.cumulativeDistance += Math.abs(this.backend.speed()) * dt;
-      this.cumulativeEnergy += accelCommand * this.backend.speed() * dt;
+      await this.backend.step(control, dt);
+      const speed = this.backend.speed();
+      this.cumulativeDistance += Math.abs(speed) * dt;
+      this.cumulativeEnergy += accelCommand * speed * dt;
       this.simulationTime += dt;
       steerAngle += steerRate * dt;
     }
 
-    this.lastTelemetry = this.buildTelemetry(accelCommand, steerRate, steerAngle);
+    this.lastTelemetry = this.buildTelemetry(accelCommand, steerRate, steerAngle, this.backend.snapshot());
     return this.lastTelemetry;
   }
 
-  stepBatch(inputs: UserInput[]): SimulationTelemetry[] {
-    return inputs.map((entry) => this.step(entry));
+  async stepBatch(inputs: UserInput[]): Promise<SimulationTelemetry[]> {
+    const outputs: SimulationTelemetry[] = [];
+    for (const entry of inputs) {
+      outputs.push(await this.step(entry));
+    }
+    return outputs;
   }
 
-  private buildTelemetry(accel: number, steerRate: number, steerAngle: number): SimulationTelemetryState {
-    const telemetry = new SimulationTelemetryState();
-    const snapshot = this.backend.snapshot();
+  private buildTelemetry(accel: number, steerRate: number, steerAngle: number, snapshot: BackendSnapshot): SimulationTelemetryState {
+    const telemetry = mergeTelemetry(snapshot.telemetry, this.backend.speed());
     const [x, y, yaw, speed = this.backend.speed()] = snapshot.state;
-    telemetry.pose.x = x ?? 0;
-    telemetry.pose.y = y ?? 0;
-    telemetry.pose.yaw = yaw ?? 0;
-    telemetry.velocity.speed = speed ?? 0;
-    telemetry.velocity.longitudinal = speed ?? 0;
-    telemetry.velocity.yaw_rate = steerRate;
-    telemetry.acceleration.longitudinal = accel;
-    telemetry.steering.desired_rate = steerRate;
-    telemetry.steering.actual_rate = steerRate;
-    telemetry.steering.actual_angle = steerAngle;
-    telemetry.steering.desired_angle = steerAngle;
-    telemetry.controller.acceleration = accel;
-    telemetry.controller.throttle = Math.max(0, accel);
-    telemetry.controller.brake = Math.max(0, -accel);
-    telemetry.powertrain.drive_torque = Math.max(0, accel);
-    telemetry.powertrain.regen_torque = Math.max(0, -accel);
-    telemetry.powertrain.total_torque = telemetry.powertrain.drive_torque - telemetry.powertrain.regen_torque;
-    telemetry.powertrain.mechanical_power = accel * speed;
-    telemetry.powertrain.battery_power = telemetry.powertrain.mechanical_power;
+    telemetry.pose.x = x ?? telemetry.pose.x;
+    telemetry.pose.y = y ?? telemetry.pose.y;
+    telemetry.pose.yaw = yaw ?? telemetry.pose.yaw;
+    telemetry.velocity.speed = speed ?? telemetry.velocity.speed;
+    telemetry.velocity.longitudinal = telemetry.velocity.longitudinal || telemetry.velocity.speed;
+    telemetry.velocity.yaw_rate = telemetry.velocity.yaw_rate || steerRate;
+    telemetry.acceleration.longitudinal = telemetry.acceleration.longitudinal || accel;
+    telemetry.steering.desired_rate = telemetry.steering.desired_rate || steerRate;
+    telemetry.steering.actual_rate = telemetry.steering.actual_rate || steerRate;
+    telemetry.steering.actual_angle = telemetry.steering.actual_angle || steerAngle;
+    telemetry.steering.desired_angle = telemetry.steering.desired_angle || steerAngle;
+    telemetry.controller.acceleration = telemetry.controller.acceleration || accel;
+    telemetry.controller.throttle = telemetry.controller.throttle || Math.max(0, accel);
+    telemetry.controller.brake = telemetry.controller.brake || Math.max(0, -accel);
+    telemetry.powertrain.drive_torque = telemetry.powertrain.drive_torque || Math.max(0, accel);
+    telemetry.powertrain.regen_torque = telemetry.powertrain.regen_torque || Math.max(0, -accel);
+    telemetry.powertrain.total_torque = telemetry.powertrain.total_torque || (telemetry.powertrain.drive_torque - telemetry.powertrain.regen_torque);
+    telemetry.powertrain.mechanical_power = telemetry.powertrain.mechanical_power || accel * telemetry.velocity.speed;
+    telemetry.powertrain.battery_power = telemetry.powertrain.battery_power || telemetry.powertrain.mechanical_power;
     telemetry.totals.distance_traveled_m = this.cumulativeDistance;
     telemetry.totals.energy_consumed_joules = this.cumulativeEnergy;
     telemetry.totals.simulation_time_s = this.simulationTime;
     telemetry.traction.drift_mode = this.driftEnabled;
-    telemetry.safety_stage = SafetyStage.Normal;
+    if (!snapshot.telemetry) {
+      telemetry.safety_stage = SafetyStage.Normal;
+    }
     return telemetry;
+  }
+
+  private async performReset(params: ResetParams = {}): Promise<void> {
+    const originalModel = this.model;
+    const originalVehicle = this.vehicleId;
+    if (params.model) {
+      this.model = params.model;
+    }
+    if (params.vehicle_id) {
+      this.vehicleId = params.vehicle_id;
+    }
+    if (params.control_mode) {
+      this.controlMode = params.control_mode;
+    }
+    if (params.drift_enabled !== undefined) {
+      this.driftEnabled = params.drift_enabled;
+    }
+    if (!this.init.backend && ((params.model && params.model !== originalModel) || (params.vehicle_id && params.vehicle_id !== originalVehicle))) {
+      this.backend = new HybridSimulationBackend({
+        model: this.model,
+        vehicleId: this.vehicleId,
+        configManager: this.configManager,
+        nativeFactory: this.init.native_factory,
+        driftEnabled: this.driftEnabled,
+      });
+    }
+    const timingInfo = this.init.timing ?? await this.configManager.loadModelTiming(this.model).catch(() => kDefaultTimings[this.model]);
+    this.timing = new ModelTiming(timingInfo);
+    const schedule = this.timing.planSteps(params.dt ?? timingInfo.nominal_dt);
+    this.lastDt = schedule.clamped_dt;
+    await (this.backend.ready ?? Promise.resolve());
+    await this.backend.reset(params.initial_state ?? [], schedule.substeps[0]);
+    this.cumulativeDistance = 0;
+    this.cumulativeEnergy = 0;
+    this.simulationTime = 0;
+    this.lastTelemetry = new SimulationTelemetryState();
   }
 }
