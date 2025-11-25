@@ -240,13 +240,9 @@ class ModelTiming {
   }
 }
 
-function mergeTelemetry(base: SimulationTelemetry | undefined, fallbackSpeed: number): SimulationTelemetryState {
+function mergeTelemetry(base: SimulationTelemetry | undefined): SimulationTelemetryState {
   const telemetry = new SimulationTelemetryState();
-  if (!base) {
-    telemetry.velocity.speed = fallbackSpeed;
-    telemetry.velocity.longitudinal = fallbackSpeed;
-    return telemetry;
-  }
+  if (!base) return telemetry;
   Object.assign(telemetry.pose, base.pose ?? {});
   Object.assign(telemetry.velocity, base.velocity ?? {});
   Object.assign(telemetry.acceleration, base.acceleration ?? {});
@@ -255,14 +251,16 @@ function mergeTelemetry(base: SimulationTelemetry | undefined, fallbackSpeed: nu
   Object.assign(telemetry.controller, base.controller ?? {});
   Object.assign(telemetry.powertrain, base.powertrain ?? {});
   Object.assign(telemetry.front_axle, base.front_axle ?? {});
+  if (base.front_axle?.left) Object.assign(telemetry.front_axle.left, base.front_axle.left);
+  if (base.front_axle?.right) Object.assign(telemetry.front_axle.right, base.front_axle.right);
   Object.assign(telemetry.rear_axle, base.rear_axle ?? {});
+  if (base.rear_axle?.left) Object.assign(telemetry.rear_axle.left, base.rear_axle.left);
+  if (base.rear_axle?.right) Object.assign(telemetry.rear_axle.right, base.rear_axle.right);
   Object.assign(telemetry.totals, base.totals ?? {});
   telemetry.detector_severity = base.detector_severity ?? telemetry.detector_severity;
   telemetry.safety_stage = base.safety_stage ?? telemetry.safety_stage;
   telemetry.detector_forced = base.detector_forced ?? telemetry.detector_forced;
   telemetry.low_speed_engaged = base.low_speed_engaged ?? telemetry.low_speed_engaged;
-  telemetry.velocity.speed = telemetry.velocity.speed ?? fallbackSpeed;
-  telemetry.velocity.longitudinal = telemetry.velocity.longitudinal ?? telemetry.velocity.speed;
   return telemetry;
 }
 
@@ -346,7 +344,6 @@ export class SimulationDaemon {
 
     let accelCommand = 0;
     let steerRate = 0;
-    let steerAngle = sanitized.steering_angle ?? 0;
     if (sanitized.control_mode === ControlMode.Keyboard) {
       accelCommand = sanitized.longitudinal.throttle - sanitized.longitudinal.brake;
       const nudge = sanitized.steering_nudge ?? 0;
@@ -363,10 +360,12 @@ export class SimulationDaemon {
       this.cumulativeDistance += Math.abs(speed) * dt;
       this.cumulativeEnergy += accelCommand * speed * dt;
       this.simulationTime += dt;
-      steerAngle += steerRate * dt;
     }
 
-    this.lastTelemetry = this.buildTelemetry(accelCommand, steerRate, steerAngle, this.backend.snapshot());
+    this.lastTelemetry = this.buildTelemetry(this.backend.snapshot());
+    this.cumulativeDistance = this.lastTelemetry.totals.distance_traveled_m ?? this.cumulativeDistance;
+    this.cumulativeEnergy = this.lastTelemetry.totals.energy_consumed_joules ?? this.cumulativeEnergy;
+    this.simulationTime = this.lastTelemetry.totals.simulation_time_s ?? this.simulationTime;
     return this.lastTelemetry;
   }
 
@@ -378,55 +377,19 @@ export class SimulationDaemon {
     return outputs;
   }
 
-  private buildTelemetry(accel: number, steerRate: number, steerAngle: number, snapshot: BackendSnapshot): SimulationTelemetryState {
+  private buildTelemetry(snapshot: BackendSnapshot): SimulationTelemetryState {
     const base = snapshot.telemetry;
-    const telemetry = mergeTelemetry(base, this.backend.speed());
+    const telemetry = mergeTelemetry(base);
     const [x, y, yaw, speed = this.backend.speed()] = snapshot.state;
 
-    if (base) {
-      Object.assign(telemetry.pose, base.pose ?? {});
-      Object.assign(telemetry.velocity, base.velocity ?? {});
-      Object.assign(telemetry.acceleration, base.acceleration ?? {});
-      Object.assign(telemetry.traction, base.traction ?? {});
-      Object.assign(telemetry.steering, base.steering ?? {});
-      Object.assign(telemetry.controller, base.controller ?? {});
-      Object.assign(telemetry.powertrain, base.powertrain ?? {});
-      Object.assign(telemetry.front_axle, base.front_axle ?? {});
-      if (base.front_axle?.left) Object.assign(telemetry.front_axle.left, base.front_axle.left);
-      if (base.front_axle?.right) Object.assign(telemetry.front_axle.right, base.front_axle.right);
-      Object.assign(telemetry.rear_axle, base.rear_axle ?? {});
-      if (base.rear_axle?.left) Object.assign(telemetry.rear_axle.left, base.rear_axle.left);
-      if (base.rear_axle?.right) Object.assign(telemetry.rear_axle.right, base.rear_axle.right);
-      Object.assign(telemetry.totals, base.totals ?? {});
-      telemetry.detector_severity = base.detector_severity ?? telemetry.detector_severity;
-      telemetry.safety_stage = base.safety_stage ?? telemetry.safety_stage;
-      telemetry.detector_forced = base.detector_forced ?? telemetry.detector_forced;
-      telemetry.low_speed_engaged = base.low_speed_engaged ?? telemetry.low_speed_engaged;
-    } else {
+    if (!base) {
       telemetry.pose.x = x ?? telemetry.pose.x;
       telemetry.pose.y = y ?? telemetry.pose.y;
       telemetry.pose.yaw = yaw ?? telemetry.pose.yaw;
       telemetry.velocity.speed = speed ?? telemetry.velocity.speed;
       telemetry.velocity.longitudinal = telemetry.velocity.longitudinal ?? telemetry.velocity.speed;
-      telemetry.velocity.yaw_rate = telemetry.velocity.yaw_rate ?? steerRate;
-      telemetry.acceleration.longitudinal = telemetry.acceleration.longitudinal ?? accel;
-      telemetry.steering.desired_rate = telemetry.steering.desired_rate ?? steerRate;
-      telemetry.steering.actual_rate = telemetry.steering.actual_rate ?? steerRate;
-      telemetry.steering.actual_angle = telemetry.steering.actual_angle ?? steerAngle;
-      telemetry.steering.desired_angle = telemetry.steering.desired_angle ?? steerAngle;
-      telemetry.controller.acceleration = telemetry.controller.acceleration ?? accel;
-      telemetry.controller.throttle = telemetry.controller.throttle ?? Math.max(0, accel);
-      telemetry.controller.brake = telemetry.controller.brake ?? Math.max(0, -accel);
-      telemetry.powertrain.drive_torque = telemetry.powertrain.drive_torque ?? Math.max(0, accel);
-      telemetry.powertrain.regen_torque = telemetry.powertrain.regen_torque ?? Math.max(0, -accel);
-      telemetry.powertrain.total_torque = telemetry.powertrain.total_torque ?? (telemetry.powertrain.drive_torque - telemetry.powertrain.regen_torque);
-      telemetry.powertrain.mechanical_power = telemetry.powertrain.mechanical_power ?? accel * telemetry.velocity.speed;
-      telemetry.powertrain.battery_power = telemetry.powertrain.battery_power ?? telemetry.powertrain.mechanical_power;
-      telemetry.safety_stage = SafetyStage.Normal;
     }
 
-    telemetry.velocity.speed = telemetry.velocity.speed ?? this.backend.speed();
-    telemetry.velocity.longitudinal = telemetry.velocity.longitudinal ?? telemetry.velocity.speed;
     telemetry.totals.distance_traveled_m = base?.totals?.distance_traveled_m ?? this.cumulativeDistance;
     telemetry.totals.energy_consumed_joules = base?.totals?.energy_consumed_joules ?? this.cumulativeEnergy;
     telemetry.totals.simulation_time_s = base?.totals?.simulation_time_s ?? this.simulationTime;
