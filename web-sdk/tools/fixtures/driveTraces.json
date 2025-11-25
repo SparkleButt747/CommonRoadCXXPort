@@ -1,0 +1,69 @@
+{
+  "scenarios": [
+    {
+      "name": "mb_straightline_accel",
+      "model": "MB",
+      "vehicleId": 1,
+      "initialState": [0, 0, 0, 0],
+      "dt": 0.01,
+      "driftEnabled": false,
+      "trace": [
+        { "steps": 120, "accel": 1.5 },
+        { "steps": 80, "accel": 0.0 }
+      ],
+      "tolerances": {
+        "default": 1e-3,
+        "fields": {
+          "pose.x": 0.02,
+          "pose.y": 0.02,
+          "velocity.speed": 0.02,
+          "acceleration.longitudinal": 0.05,
+          "powertrain.mechanical_power": 20.0
+        }
+      }
+    },
+    {
+      "name": "st_sharp_yaw_safety",
+      "model": "ST",
+      "vehicleId": 1,
+      "initialState": [0, 0, 0, 5.0],
+      "dt": 0.02,
+      "driftEnabled": false,
+      "trace": [
+        { "steps": 40, "steerRate": 1.0, "accel": -0.5 },
+        { "steps": 30, "steerRate": -1.2, "accel": -0.2 },
+        { "steps": 30, "steerRate": 0.0, "accel": 0.3 }
+      ],
+      "tolerances": {
+        "default": 2e-3,
+        "fields": {
+          "detector_severity": 0.05,
+          "safety_stage": 0.0,
+          "traction.slip_angle": 0.05,
+          "velocity.yaw_rate": 0.05
+        }
+      }
+    },
+    {
+      "name": "std_drift_toggle",
+      "model": "STD",
+      "vehicleId": 1,
+      "initialState": [0, 0, 0, 8.0],
+      "dt": 0.01,
+      "driftEnabled": true,
+      "trace": [
+        { "steps": 50, "steerRate": 0.6, "accel": 0.4 },
+        { "steps": 50, "steerRate": 0.8, "accel": -0.3 },
+        { "steps": 40, "steerRate": 0.0, "accel": -0.5 }
+      ],
+      "tolerances": {
+        "default": 3e-3,
+        "fields": {
+          "traction.drift_mode": 0.0,
+          "traction.lateral_force_saturation": 0.05,
+          "velocity.lateral": 0.05
+        }
+      }
+    }
+  ]
+}
