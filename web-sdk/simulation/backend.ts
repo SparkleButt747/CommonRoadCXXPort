@@ -1,6 +1,6 @@
 import { ConfigManager } from '../io/ConfigManager.js';
+import packagedNativeFactory from './nativeFactory.js';
 import { ModelType } from './types.js';
-import { JsSimulationBackend } from './jsBackend.js';
 import type { SimulationTelemetry } from '../telemetry/index.js';
 
 export interface BackendSnapshot {
@@ -100,7 +100,7 @@ export class HybridSimulationBackend implements SimulationBackend {
   }
 
   private async initialize(): Promise<void> {
-    const { configManager, vehicleId, model, nativeFactory } = this.options;
+    const { configManager, vehicleId, model } = this.options;
 
     const fallbackDefaults = await this.loadConfigs(configManager, vehicleId, model).catch((error) => {
       console.warn(`HybridSimulationBackend failed to load configs; using defaults: ${error}`);
@@ -111,29 +111,24 @@ export class HybridSimulationBackend implements SimulationBackend {
       };
     });
 
-    if (nativeFactory) {
-      try {
-        const native = await nativeFactory({
-          model,
-          vehicleParameters: fallbackDefaults.vehicle,
-          lowSpeedSafety: fallbackDefaults.lowSpeed,
-          lossOfControl: fallbackDefaults.loss,
-        });
-        this.delegate = new NativeSimulationBackend(native);
-        return;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : `${error}`;
-        console.warn(`HybridSimulationBackend native initialization failed; falling back to JS backend: ${message}`);
-      }
+    const factory = this.options.nativeFactory ?? packagedNativeFactory;
+
+    if (!factory) {
+      throw new Error('HybridSimulationBackend requires a native backend factory for MB/ST/STD models');
     }
 
-    this.delegate = new JsSimulationBackend({
-      model,
-      params: fallbackDefaults.vehicle,
-      lowSpeed: fallbackDefaults.lowSpeed,
-      lossConfig: fallbackDefaults.loss,
-      driftEnabled: this.options.driftEnabled,
-    });
+    try {
+      const native = await factory({
+        model,
+        vehicleParameters: fallbackDefaults.vehicle,
+        lowSpeedSafety: fallbackDefaults.lowSpeed,
+        lossOfControl: fallbackDefaults.loss,
+      });
+      this.delegate = new NativeSimulationBackend(native);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : `${error}`;
+      throw new Error(`HybridSimulationBackend initialization failed: ${message}`);
+    }
   }
 
   private async loadConfigs(configManager: ConfigManager, vehicleId: number, model: ModelType) {
