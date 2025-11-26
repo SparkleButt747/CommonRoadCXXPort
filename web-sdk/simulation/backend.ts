@@ -1,5 +1,4 @@
 import { ConfigManager } from '../io/ConfigManager.js';
-import { SimulationTelemetryState } from '../telemetry/index.js';
 import { ModelType } from './types.js';
 import packagedNativeFactory from './nativeFactory.js';
 import type { SimulationTelemetry } from '../telemetry/index.js';
@@ -62,12 +61,12 @@ interface LowSpeedSafetyConfig {
 }
 
 /**
- * Hybrid backend that prefers a native daemon (e.g., WASM bindings) but
- * transparently falls back to a pure-JS physics approximation when native
- * bindings are unavailable.
+ * Hybrid backend that always uses a native daemon (packaged WASM or provided
+ * factory). Initialization fails fast when a concrete daemon cannot be
+ * constructed so we do not silently fall back to a kinematic approximation.
  */
 export class HybridSimulationBackend implements SimulationBackend {
-  private delegate: SimulationBackend;
+  private delegate!: SimulationBackend;
   ready: Promise<void>;
 
   constructor(
@@ -79,9 +78,6 @@ export class HybridSimulationBackend implements SimulationBackend {
       driftEnabled: boolean;
     }
   ) {
-    this.delegate = new NativeSimulationBackend(
-      new NullDaemonHandle({ driftEnabled: options.driftEnabled })
-    );
     this.ready = this.initialize();
   }
 
@@ -104,7 +100,8 @@ export class HybridSimulationBackend implements SimulationBackend {
   }
 
   private async initialize(): Promise<void> {
-    const { configManager, vehicleId, model } = this.options;
+    const { configManager, vehicleId, model, nativeFactory } = this.options;
+
     const fallbackDefaults = await this.loadConfigs(configManager, vehicleId, model).catch((error) => {
       console.warn(`HybridSimulationBackend failed to load configs; using defaults: ${error}`);
       return {
@@ -114,14 +111,23 @@ export class HybridSimulationBackend implements SimulationBackend {
       };
     });
 
-    const factory = this.options.nativeFactory ?? packagedNativeFactory;
-    const native = await factory({
-      model,
-      vehicleParameters: fallbackDefaults.vehicle,
-      lowSpeedSafety: fallbackDefaults.lowSpeed,
-      lossOfControl: fallbackDefaults.loss,
-    });
-    this.delegate = new NativeSimulationBackend(native);
+    const factory = nativeFactory ?? packagedNativeFactory;
+    if (!factory) {
+      throw new Error('HybridSimulationBackend requires a native daemon factory (native bindings or WASM)');
+    }
+
+    try {
+      const native = await factory({
+        model,
+        vehicleParameters: fallbackDefaults.vehicle,
+        lowSpeedSafety: fallbackDefaults.lowSpeed,
+        lossOfControl: fallbackDefaults.loss,
+      });
+      this.delegate = new NativeSimulationBackend(native);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : `${error}`;
+      throw new Error(`HybridSimulationBackend failed to initialize native daemon: ${message}`);
+    }
   }
 
   private async loadConfigs(configManager: ConfigManager, vehicleId: number, model: ModelType) {
@@ -163,57 +169,6 @@ class NativeSimulationBackend implements SimulationBackend {
   speed(): number {
     return this.handle.speed();
   }
-}
-
-class NullDaemonHandle implements NativeDaemonHandle {
-  private current: BackendSnapshot = {
-    state: [0, 0, 0, 0],
-    telemetry: new SimulationTelemetryState(),
-    dt: 0,
-    simulation_time_s: 0,
-  };
-
-  constructor(private readonly options: { driftEnabled: boolean }) {
-    this.current.telemetry!.traction.drift_mode = options.driftEnabled;
-  }
-
-  reset(state: number[], dt: number): void {
-    this.current = {
-      state: [...state],
-      dt,
-      simulation_time_s: 0,
-      telemetry: new SimulationTelemetryState(),
-    };
-    this.current.telemetry!.traction.drift_mode = this.options.driftEnabled;
-  }
-
-  step(control: number[], dt: number): void {
-    const accel = control[1] ?? 0;
-    const speed = (this.current.state[3] ?? 0) + accel * dt;
-    this.current.state[3] = speed;
-    this.current.dt = dt;
-    this.current.simulation_time_s = (this.current.simulation_time_s ?? 0) + dt;
-    this.current.telemetry!.velocity.speed = speed;
-    this.current.telemetry!.controller.acceleration = accel;
-    this.current.telemetry!.totals.simulation_time_s = this.current.simulation_time_s;
-  }
-
-  snapshot(): BackendSnapshot {
-    return this.current;
-  }
-
-  speed(): number {
-    return Number(this.current.state[3] ?? 0);
-  }
-}
-
-function clampNumber(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
-}
-
-function numberOrFallback(value: unknown, fallback: number): number {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric : fallback;
 }
 
 function parseConfigDocument(document: unknown): Record<string, unknown> {
