@@ -150,7 +150,10 @@ class LowSpeedSafety {
     this.driftEnabled = enabled;
   }
 
-  status(state: number[], speed: number): { severity: number; stage: SafetyStage; detectorForced: boolean } {
+  status(
+    state: number[],
+    speed: number
+  ): { severity: number; stage: SafetyStage; detectorForced: boolean; latchActive: boolean; driftMode: boolean } {
     const profile = this.config.active_profile ? this.config.active_profile(this.driftEnabled) : this.profile();
     const yaw = state[5] ?? 0;
     const slip = state[6] ?? 0;
@@ -165,7 +168,7 @@ class LowSpeedSafety {
       : transitionBlend > 0
         ? SafetyStage.Transition
         : SafetyStage.Normal;
-    return { severity, stage, detectorForced };
+    return { severity, stage, detectorForced, latchActive, driftMode: this.driftEnabled };
   }
 
   apply(state: number[], speed: number, yawRateIdx: number, slipIdx: number, lateralIdx: number, steeringIdx: number, wheelBase: number, rearLength: number): void {
@@ -459,7 +462,9 @@ export class JsSimulationBackend implements SimulationBackend {
     telem.traction.slip_angle = slipAngle;
     telem.traction.front_slip_angle = inputs.frontSlip;
     telem.traction.rear_slip_angle = inputs.rearSlip;
-    telem.traction.lateral_force_saturation = Math.max(inputs.frontCombinedUtil, inputs.rearCombinedUtil);
+    const totalNormalForce = Math.max(this.params.m * 9.81, 1e-6);
+    const lateralAvailable = Math.max(this.params.mu * totalNormalForce, 1e-6);
+    telem.traction.lateral_force_saturation = Math.min(1, Math.abs(this.params.m * inputs.lateralAccel) / lateralAvailable);
     telem.traction.drift_mode = this.options.driftEnabled;
 
     telem.steering.desired_angle = steeringAngle;
@@ -512,7 +517,8 @@ export class JsSimulationBackend implements SimulationBackend {
     telem.detector_severity = Math.max(detectorSeverity, safetyStatus.severity);
     telem.safety_stage = safetyStatus.stage;
     telem.detector_forced = safetyStatus.detectorForced;
-    telem.low_speed_engaged = safetyStatus.stage !== SafetyStage.Normal;
+    telem.low_speed_engaged = safetyStatus.latchActive;
+    telem.traction.drift_mode = safetyStatus.driftMode;
 
     telem.totals.distance_traveled_m = this.distance;
     telem.totals.energy_consumed_joules = this.energy;
