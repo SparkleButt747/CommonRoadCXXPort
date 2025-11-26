@@ -1,6 +1,7 @@
 import { ConfigManager } from '../io/ConfigManager.js';
 import { ModelType } from './types.js';
 import packagedNativeFactory from './nativeFactory.js';
+import { JsSimulationBackend } from './jsBackend.js';
 import type { SimulationTelemetry } from '../telemetry/index.js';
 
 export interface BackendSnapshot {
@@ -112,22 +113,29 @@ export class HybridSimulationBackend implements SimulationBackend {
     });
 
     const factory = nativeFactory ?? packagedNativeFactory;
-    if (!factory) {
-      throw new Error('HybridSimulationBackend requires a native daemon factory (native bindings or WASM)');
+
+    if (factory) {
+      try {
+        const native = await factory({
+          model,
+          vehicleParameters: fallbackDefaults.vehicle,
+          lowSpeedSafety: fallbackDefaults.lowSpeed,
+          lossOfControl: fallbackDefaults.loss,
+        });
+        this.delegate = new NativeSimulationBackend(native);
+        return;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : `${error}`;
+        console.warn(`HybridSimulationBackend native initialization failed; falling back to JS backend: ${message}`);
+      }
     }
 
-    try {
-      const native = await factory({
-        model,
-        vehicleParameters: fallbackDefaults.vehicle,
-        lowSpeedSafety: fallbackDefaults.lowSpeed,
-        lossOfControl: fallbackDefaults.loss,
-      });
-      this.delegate = new NativeSimulationBackend(native);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : `${error}`;
-      throw new Error(`HybridSimulationBackend failed to initialize native daemon: ${message}`);
-    }
+    this.delegate = new JsSimulationBackend({
+      params: fallbackDefaults.vehicle,
+      lowSpeed: fallbackDefaults.lowSpeed,
+      lossConfig: fallbackDefaults.loss,
+      driftEnabled: this.options.driftEnabled,
+    });
   }
 
   private async loadConfigs(configManager: ConfigManager, vehicleId: number, model: ModelType) {
