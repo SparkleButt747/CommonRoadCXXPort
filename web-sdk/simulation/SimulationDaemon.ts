@@ -378,87 +378,27 @@ export class SimulationDaemon {
   }
 
   private buildTelemetry(snapshot: BackendSnapshot): SimulationTelemetryState {
+    const telemetry = snapshot.telemetry ? mergeTelemetry(snapshot.telemetry) : new SimulationTelemetryState();
+
     if (snapshot.telemetry) {
-      const telemetry = mergeTelemetry(snapshot.telemetry);
       this.cumulativeDistance = telemetry.totals.distance_traveled_m ?? this.cumulativeDistance;
       this.cumulativeEnergy = telemetry.totals.energy_consumed_joules ?? this.cumulativeEnergy;
       this.simulationTime = snapshot.simulation_time_s ?? telemetry.totals.simulation_time_s ?? this.simulationTime;
-      return telemetry;
+    } else {
+      const [x, y, yaw, speed = this.backend.speed()] = snapshot.state;
+      telemetry.pose.x = x ?? telemetry.pose.x;
+      telemetry.pose.y = y ?? telemetry.pose.y;
+      telemetry.pose.yaw = yaw ?? telemetry.pose.yaw;
+      telemetry.velocity.speed = speed ?? telemetry.velocity.speed;
+      telemetry.velocity.longitudinal = telemetry.velocity.longitudinal ?? telemetry.velocity.speed;
+      telemetry.velocity.yaw_rate = snapshot.state[5] ?? telemetry.velocity.yaw_rate;
+      telemetry.traction.slip_angle = snapshot.state[6] ?? telemetry.traction.slip_angle;
+      telemetry.steering.actual_angle = snapshot.state[7] ?? telemetry.steering.actual_angle;
     }
 
-    const telemetry = mergeTelemetry(undefined);
-    const [x, y, yaw, speed = this.backend.speed()] = snapshot.state;
-    telemetry.pose.x = x ?? telemetry.pose.x;
-    telemetry.pose.y = y ?? telemetry.pose.y;
-    telemetry.pose.yaw = yaw ?? telemetry.pose.yaw;
-    telemetry.velocity.speed = speed ?? telemetry.velocity.speed;
-    telemetry.velocity.longitudinal = telemetry.velocity.longitudinal ?? telemetry.velocity.speed;
-    telemetry.velocity.lateral = telemetry.velocity.lateral ?? 0;
-    telemetry.velocity.yaw_rate = telemetry.velocity.yaw_rate ?? (snapshot.state[5] ?? 0);
-    telemetry.velocity.global_x = telemetry.velocity.global_x ?? telemetry.velocity.longitudinal * Math.cos(telemetry.pose.yaw);
-    telemetry.velocity.global_y = telemetry.velocity.global_y ?? telemetry.velocity.longitudinal * Math.sin(telemetry.pose.yaw);
-
-    telemetry.acceleration.longitudinal = telemetry.acceleration.longitudinal ?? 0;
-    telemetry.acceleration.lateral = telemetry.acceleration.lateral ?? 0;
-
-    const slip = snapshot.state[6] ?? telemetry.traction.slip_angle ?? 0;
-    telemetry.traction.slip_angle = slip;
-    telemetry.traction.front_slip_angle = telemetry.traction.front_slip_angle ?? slip;
-    telemetry.traction.rear_slip_angle = telemetry.traction.rear_slip_angle ?? slip;
-    const lateralForceSat = telemetry.traction.lateral_force_saturation ?? Math.min(1, Math.abs(telemetry.acceleration.lateral) / Math.max(telemetry.velocity.speed, 1e-6));
-    telemetry.traction.lateral_force_saturation = lateralForceSat;
-    telemetry.traction.drift_mode = this.driftEnabled;
-
-    telemetry.steering.actual_angle = snapshot.state[7] ?? telemetry.steering.actual_angle;
-    telemetry.steering.desired_angle = telemetry.steering.desired_angle ?? telemetry.steering.actual_angle;
-    telemetry.steering.actual_rate = telemetry.steering.actual_rate ?? 0;
-    telemetry.steering.desired_rate = telemetry.steering.desired_rate ?? 0;
-
-    telemetry.controller.acceleration = telemetry.controller.acceleration ?? telemetry.acceleration.longitudinal ?? 0;
-    telemetry.controller.throttle = telemetry.controller.throttle ?? 0;
-    telemetry.controller.brake = telemetry.controller.brake ?? 0;
-    telemetry.controller.drive_force = telemetry.controller.drive_force ?? 0;
-    telemetry.controller.brake_force = telemetry.controller.brake_force ?? 0;
-    telemetry.controller.regen_force = telemetry.controller.regen_force ?? 0;
-    telemetry.controller.hydraulic_force = telemetry.controller.hydraulic_force ?? telemetry.controller.brake_force;
-    telemetry.controller.drag_force = telemetry.controller.drag_force ?? 0;
-    telemetry.controller.rolling_force = telemetry.controller.rolling_force ?? 0;
-
-    telemetry.powertrain.total_torque = telemetry.powertrain.total_torque ?? 0;
-    telemetry.powertrain.drive_torque = telemetry.powertrain.drive_torque ?? 0;
-    telemetry.powertrain.regen_torque = telemetry.powertrain.regen_torque ?? 0;
-    telemetry.powertrain.mechanical_power = telemetry.powertrain.mechanical_power ?? telemetry.powertrain.total_torque * telemetry.velocity.speed;
-    telemetry.powertrain.battery_power = telemetry.powertrain.battery_power ?? telemetry.powertrain.mechanical_power;
-    telemetry.powertrain.soc = telemetry.powertrain.soc ?? 0.5;
-
-    telemetry.front_axle.drive_torque = telemetry.front_axle.drive_torque ?? 0;
-    telemetry.rear_axle.drive_torque = telemetry.rear_axle.drive_torque ?? 0;
-    telemetry.front_axle.brake_torque = telemetry.front_axle.brake_torque ?? 0;
-    telemetry.rear_axle.brake_torque = telemetry.rear_axle.brake_torque ?? 0;
-    telemetry.front_axle.regen_torque = telemetry.front_axle.regen_torque ?? 0;
-    telemetry.rear_axle.regen_torque = telemetry.rear_axle.regen_torque ?? 0;
-    telemetry.front_axle.normal_force = telemetry.front_axle.normal_force ?? 0;
-    telemetry.rear_axle.normal_force = telemetry.rear_axle.normal_force ?? 0;
-
-    const slipRatioFront = telemetry.front_axle.left.slip_ratio ?? telemetry.front_axle.right.slip_ratio ?? 0;
-    const slipRatioRear = telemetry.rear_axle.left.slip_ratio ?? telemetry.rear_axle.right.slip_ratio ?? 0;
-    telemetry.front_axle.left.slip_ratio = telemetry.front_axle.left.slip_ratio ?? slipRatioFront;
-    telemetry.front_axle.right.slip_ratio = telemetry.front_axle.right.slip_ratio ?? slipRatioFront;
-    telemetry.rear_axle.left.slip_ratio = telemetry.rear_axle.left.slip_ratio ?? slipRatioRear;
-    telemetry.rear_axle.right.slip_ratio = telemetry.rear_axle.right.slip_ratio ?? slipRatioRear;
-
-    telemetry.front_axle.left.friction_utilization = telemetry.front_axle.left.friction_utilization ?? Math.abs(telemetry.front_axle.left.slip_ratio);
-    telemetry.front_axle.right.friction_utilization = telemetry.front_axle.right.friction_utilization ?? Math.abs(telemetry.front_axle.right.slip_ratio);
-    telemetry.rear_axle.left.friction_utilization = telemetry.rear_axle.left.friction_utilization ?? Math.abs(telemetry.rear_axle.left.slip_ratio);
-    telemetry.rear_axle.right.friction_utilization = telemetry.rear_axle.right.friction_utilization ?? Math.abs(telemetry.rear_axle.right.slip_ratio);
-
-    telemetry.totals.distance_traveled_m = this.cumulativeDistance;
-    telemetry.totals.energy_consumed_joules = this.cumulativeEnergy;
-    telemetry.totals.simulation_time_s = snapshot.simulation_time_s ?? this.simulationTime;
-    telemetry.detector_severity = telemetry.detector_severity ?? 0;
-    telemetry.safety_stage = telemetry.safety_stage ?? SafetyStage.Normal;
-    telemetry.detector_forced = telemetry.detector_forced ?? false;
-    telemetry.low_speed_engaged = telemetry.low_speed_engaged ?? false;
+    telemetry.totals.distance_traveled_m = telemetry.totals.distance_traveled_m ?? this.cumulativeDistance;
+    telemetry.totals.energy_consumed_joules = telemetry.totals.energy_consumed_joules ?? this.cumulativeEnergy;
+    telemetry.totals.simulation_time_s = snapshot.simulation_time_s ?? telemetry.totals.simulation_time_s ?? this.simulationTime;
 
     return telemetry;
   }
