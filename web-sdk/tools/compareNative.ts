@@ -4,6 +4,7 @@ import { access } from 'fs';
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { HybridSimulationBackend, NativeDaemonFactory } from '../simulation/backend.js';
+import packagedNativeFactory from '../simulation/nativeFactory.js';
 import { ConfigManager } from '../io/ConfigManager.js';
 import { ModelType } from '../simulation/types.js';
 import type { BackendSnapshot, SimulationBackend } from '../simulation/backend.js';
@@ -81,11 +82,6 @@ function parseArgs(argv: string[]): CliOptions {
     } else if (arg === '--help' || arg === '-h') {
       usage();
     }
-  }
-
-  if (!options.nativeFactoryPath) {
-    console.error('A native daemon factory module must be provided via --native');
-    usage();
   }
 
   return options;
@@ -282,7 +278,9 @@ async function main(): Promise<void> {
   const configRoot = fileRoot(options.configRoot ?? path.join(path.dirname(options.parameterRoot), 'config'));
   const fetcher = buildFileFetcher('/');
   const configManager = new ConfigManager(configRoot, parameterRoot, fetcher);
-  const nativeFactory = await loadNativeFactory(options.nativeFactoryPath!);
+  const nativeFactory = options.nativeFactoryPath
+    ? await loadNativeFactory(options.nativeFactoryPath)
+    : packagedNativeFactory;
 
   for (const scenario of scenarios) {
     const model = toModel(scenario.model);

@@ -378,26 +378,21 @@ export class SimulationDaemon {
   }
 
   private buildTelemetry(snapshot: BackendSnapshot): SimulationTelemetryState {
-    const base = snapshot.telemetry;
-    const telemetry = mergeTelemetry(base);
-    const [x, y, yaw, speed = this.backend.speed()] = snapshot.state;
-
-    if (!base) {
-      telemetry.pose.x = x ?? telemetry.pose.x;
-      telemetry.pose.y = y ?? telemetry.pose.y;
-      telemetry.pose.yaw = yaw ?? telemetry.pose.yaw;
-      telemetry.velocity.speed = speed ?? telemetry.velocity.speed;
-      telemetry.velocity.longitudinal = telemetry.velocity.longitudinal ?? telemetry.velocity.speed;
+    if (snapshot.telemetry) {
+      return mergeTelemetry(snapshot.telemetry);
     }
 
-    telemetry.totals.distance_traveled_m = base?.totals?.distance_traveled_m ?? this.cumulativeDistance;
-    telemetry.totals.energy_consumed_joules = base?.totals?.energy_consumed_joules ?? this.cumulativeEnergy;
-    telemetry.totals.simulation_time_s = base?.totals?.simulation_time_s ?? this.simulationTime;
-    telemetry.traction.drift_mode = telemetry.traction.drift_mode ?? this.driftEnabled;
-    telemetry.low_speed_engaged = telemetry.low_speed_engaged ?? false;
-    telemetry.detector_forced = telemetry.detector_forced ?? false;
-    telemetry.safety_stage = telemetry.safety_stage ?? SafetyStage.Normal;
-    telemetry.detector_severity = telemetry.detector_severity ?? 0;
+    const telemetry = mergeTelemetry(undefined);
+    const [x, y, yaw, speed = this.backend.speed()] = snapshot.state;
+    telemetry.pose.x = x ?? telemetry.pose.x;
+    telemetry.pose.y = y ?? telemetry.pose.y;
+    telemetry.pose.yaw = yaw ?? telemetry.pose.yaw;
+    telemetry.velocity.speed = speed ?? telemetry.velocity.speed;
+    telemetry.velocity.longitudinal = telemetry.velocity.longitudinal ?? telemetry.velocity.speed;
+    telemetry.totals.distance_traveled_m = this.cumulativeDistance;
+    telemetry.totals.energy_consumed_joules = this.cumulativeEnergy;
+    telemetry.totals.simulation_time_s = this.simulationTime;
+    telemetry.traction.drift_mode = this.driftEnabled;
 
     return telemetry;
   }
