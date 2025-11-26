@@ -4,7 +4,6 @@ import { access } from 'fs';
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { HybridSimulationBackend, NativeDaemonFactory } from '../simulation/backend.js';
-import packagedNativeFactory from '../simulation/nativeFactory.js';
 import { ConfigManager } from '../io/ConfigManager.js';
 import { ModelType } from '../simulation/types.js';
 import type { BackendSnapshot, SimulationBackend } from '../simulation/backend.js';
@@ -280,7 +279,7 @@ async function main(): Promise<void> {
   const configManager = new ConfigManager(configRoot, parameterRoot, fetcher);
   const nativeFactory = options.nativeFactoryPath
     ? await loadNativeFactory(options.nativeFactoryPath)
-    : packagedNativeFactory;
+    : undefined;
 
   for (const scenario of scenarios) {
     const model = toModel(scenario.model);

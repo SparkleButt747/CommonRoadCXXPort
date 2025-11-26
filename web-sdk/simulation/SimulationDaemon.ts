@@ -379,7 +379,11 @@ export class SimulationDaemon {
 
   private buildTelemetry(snapshot: BackendSnapshot): SimulationTelemetryState {
     if (snapshot.telemetry) {
-      return mergeTelemetry(snapshot.telemetry);
+      const telemetry = mergeTelemetry(snapshot.telemetry);
+      this.cumulativeDistance = telemetry.totals.distance_traveled_m ?? this.cumulativeDistance;
+      this.cumulativeEnergy = telemetry.totals.energy_consumed_joules ?? this.cumulativeEnergy;
+      this.simulationTime = snapshot.simulation_time_s ?? telemetry.totals.simulation_time_s ?? this.simulationTime;
+      return telemetry;
     }
 
     const telemetry = mergeTelemetry(undefined);
@@ -450,7 +454,7 @@ export class SimulationDaemon {
 
     telemetry.totals.distance_traveled_m = this.cumulativeDistance;
     telemetry.totals.energy_consumed_joules = this.cumulativeEnergy;
-    telemetry.totals.simulation_time_s = this.simulationTime;
+    telemetry.totals.simulation_time_s = snapshot.simulation_time_s ?? this.simulationTime;
     telemetry.detector_severity = telemetry.detector_severity ?? 0;
     telemetry.safety_stage = telemetry.safety_stage ?? SafetyStage.Normal;
     telemetry.detector_forced = telemetry.detector_forced ?? false;

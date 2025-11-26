@@ -1,6 +1,5 @@
 import { ConfigManager } from '../io/ConfigManager.js';
 import { ModelType } from './types.js';
-import packagedNativeFactory from './nativeFactory.js';
 import { JsSimulationBackend } from './jsBackend.js';
 import type { SimulationTelemetry } from '../telemetry/index.js';
 
@@ -112,11 +111,9 @@ export class HybridSimulationBackend implements SimulationBackend {
       };
     });
 
-    const factory = nativeFactory ?? packagedNativeFactory;
-
-    if (factory) {
+    if (nativeFactory) {
       try {
-        const native = await factory({
+        const native = await nativeFactory({
           model,
           vehicleParameters: fallbackDefaults.vehicle,
           lowSpeedSafety: fallbackDefaults.lowSpeed,
@@ -131,6 +128,7 @@ export class HybridSimulationBackend implements SimulationBackend {
     }
 
     this.delegate = new JsSimulationBackend({
+      model,
       params: fallbackDefaults.vehicle,
       lowSpeed: fallbackDefaults.lowSpeed,
       lossConfig: fallbackDefaults.loss,
