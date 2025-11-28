@@ -13,6 +13,9 @@ import {
 import { ConfigManager } from '../io/ConfigManager.js';
 import { ControlMode, ModelTimingInfo, ModelType } from './types.js';
 import { BackendSnapshot, HybridSimulationBackend, NativeDaemonFactory, SimulationBackend } from './backend.js';
+import { SteeringWheel, FinalSteerController } from '../controllers/steering.js';
+import { FinalAccelController, ControllerOutput as AccelControllerOutput } from '../controllers/longitudinal/finalAccelController.js';
+import { VehicleParameters } from '../models/types.js';
 export { ControlMode, ModelTimingInfo, ModelType } from './types.js';
 
 export interface DriverIntent {
@@ -273,6 +276,10 @@ export class SimulationDaemon {
   private limits: UserInputLimits;
   private timing: ModelTiming;
   private configManager: ConfigManager;
+  private params?: VehicleParameters;
+  private steeringWheel?: SteeringWheel;
+  private finalSteer?: FinalSteerController;
+  private accelController?: FinalAccelController;
   private lastTelemetry: SimulationTelemetryState = new SimulationTelemetryState();
   private cumulativeDistance = 0;
   private cumulativeEnergy = 0;
@@ -344,25 +351,46 @@ export class SimulationDaemon {
 
     let accelCommand = 0;
     let steerRate = 0;
-    if (sanitized.control_mode === ControlMode.Keyboard) {
-      accelCommand = sanitized.longitudinal.throttle - sanitized.longitudinal.brake;
-      const nudge = sanitized.steering_nudge ?? 0;
-      steerRate = nudge;
-    } else {
-      accelCommand = (sanitized.axle_torques ?? []).reduce((sum, torque) => sum + torque, 0);
-      steerRate = 0;
-    }
-
+    let accelOutput: AccelControllerOutput | undefined;
+    let steeringOutput: SteeringWheel.Output | undefined;
+    let finalOutput: FinalSteerController.Output | undefined;
     for (const dt of schedule.substeps) {
-      const control = [steerRate, accelCommand];
-      await this.backend.step(control, dt);
-      const speed = this.backend.speed();
-      this.cumulativeDistance += Math.abs(speed) * dt;
-      this.cumulativeEnergy += accelCommand * speed * dt;
+      if (sanitized.control_mode === ControlMode.Keyboard &&
+          this.accelController && this.steeringWheel && this.finalSteer) {
+        const startSpeed = this.backend.speed();
+        const state = this.backend.snapshot().state ?? [];
+        const currentAngle = state[2] ?? 0;
+        steeringOutput = this.steeringWheel.update(sanitized.steering_nudge ?? 0, dt);
+        finalOutput = this.finalSteer.update(steeringOutput.target_angle, currentAngle, dt);
+        accelOutput = this.accelController.step(sanitized.longitudinal as DriverIntent, startSpeed, dt);
+        await this.backend.step([finalOutput.rate, accelOutput.acceleration], dt);
+        const endSpeed = this.backend.speed();
+        const meanSpeed = 0.5 * (Math.abs(startSpeed) + Math.abs(endSpeed));
+        const batteryPower = accelOutput.battery_power ?? accelOutput.acceleration * meanSpeed * (this.params?.m ?? 0);
+        this.cumulativeDistance += meanSpeed * dt;
+        this.cumulativeEnergy += batteryPower * dt;
+      } else if (sanitized.control_mode === ControlMode.Direct) {
+        accelCommand = this.directAccelerationFromTorque(sanitized.axle_torques ?? []);
+        steerRate = 0;
+        const control = [steerRate, accelCommand];
+        await this.backend.step(control, dt);
+        const speed = this.backend.speed();
+        this.cumulativeDistance += Math.abs(speed) * dt;
+        this.cumulativeEnergy += accelCommand * speed * dt;
+      } else {
+        accelCommand = sanitized.longitudinal.throttle - sanitized.longitudinal.brake;
+        const nudge = sanitized.steering_nudge ?? 0;
+        steerRate = nudge;
+        const control = [steerRate, accelCommand];
+        await this.backend.step(control, dt);
+        const speed = this.backend.speed();
+        this.cumulativeDistance += Math.abs(speed) * dt;
+        this.cumulativeEnergy += accelCommand * speed * dt;
+      }
       this.simulationTime += dt;
     }
 
-    this.lastTelemetry = this.buildTelemetry(this.backend.snapshot());
+    this.lastTelemetry = this.buildTelemetry(this.backend.snapshot(), accelOutput, steeringOutput, finalOutput);
     this.cumulativeDistance = this.lastTelemetry.totals.distance_traveled_m ?? this.cumulativeDistance;
     this.cumulativeEnergy = this.lastTelemetry.totals.energy_consumed_joules ?? this.cumulativeEnergy;
     this.simulationTime = this.lastTelemetry.totals.simulation_time_s ?? this.simulationTime;
@@ -377,7 +405,12 @@ export class SimulationDaemon {
     return outputs;
   }
 
-  private buildTelemetry(snapshot: BackendSnapshot): SimulationTelemetryState {
+  private buildTelemetry(
+    snapshot: BackendSnapshot,
+    accelOutput?: AccelControllerOutput,
+    steeringInput?: SteeringWheel.Output,
+    steeringOutput?: FinalSteerController.Output
+  ): SimulationTelemetryState {
     const telemetry = snapshot.telemetry ? mergeTelemetry(snapshot.telemetry) : new SimulationTelemetryState();
 
     if (snapshot.telemetry) {
@@ -396,11 +429,111 @@ export class SimulationDaemon {
       telemetry.steering.actual_angle = snapshot.state[7] ?? telemetry.steering.actual_angle;
     }
 
+    if (accelOutput) {
+      telemetry.controller.acceleration = accelOutput.acceleration;
+      telemetry.controller.throttle = accelOutput.throttle;
+      telemetry.controller.brake = accelOutput.brake;
+      telemetry.controller.drive_force = accelOutput.drive_force;
+      telemetry.controller.brake_force = accelOutput.brake_force;
+      telemetry.controller.regen_force = accelOutput.regen_force;
+      telemetry.controller.hydraulic_force = accelOutput.hydraulic_force;
+      telemetry.controller.drag_force = accelOutput.drag_force;
+      telemetry.controller.rolling_force = accelOutput.rolling_force;
+
+      telemetry.powertrain.drive_torque = accelOutput.drive_force * (this.params?.R_w ?? 0);
+      telemetry.powertrain.regen_torque = accelOutput.regen_force * (this.params?.R_w ?? 0);
+      telemetry.powertrain.total_torque = telemetry.powertrain.drive_torque - telemetry.powertrain.regen_torque;
+      telemetry.powertrain.mechanical_power = accelOutput.mechanical_power;
+      telemetry.powertrain.battery_power = accelOutput.battery_power;
+      telemetry.powertrain.soc = accelOutput.soc;
+    }
+    if (steeringInput) {
+      telemetry.steering.desired_angle = steeringInput.target_angle;
+      telemetry.steering.actual_angle = steeringInput.angle;
+      telemetry.steering.desired_rate = steeringInput.rate;
+      telemetry.steering.actual_rate = steeringInput.rate;
+    }
+    if (steeringOutput) {
+      telemetry.steering.actual_angle = steeringOutput.angle;
+      telemetry.steering.desired_angle = steeringOutput.filtered_target;
+      telemetry.steering.actual_rate = steeringOutput.rate;
+      telemetry.steering.desired_rate = steeringOutput.rate;
+    }
+
     telemetry.totals.distance_traveled_m = telemetry.totals.distance_traveled_m ?? this.cumulativeDistance;
     telemetry.totals.energy_consumed_joules = telemetry.totals.energy_consumed_joules ?? this.cumulativeEnergy;
     telemetry.totals.simulation_time_s = snapshot.simulation_time_s ?? telemetry.totals.simulation_time_s ?? this.simulationTime;
 
     return telemetry;
+  }
+
+  private async rebuildControllers(): Promise<void> {
+    if (!this.params) {
+      this.params = await this.configManager.loadVehicleParameters(this.vehicleId).catch(() => this.params);
+    }
+    if (!this.params) {
+      return;
+    }
+    const steeringCfg = await this.configManager.loadSteeringConfig().catch(() => ({} as any));
+    if (steeringCfg?.wheel && steeringCfg?.final) {
+      this.steeringWheel = new SteeringWheel(steeringCfg.wheel, this.params.steering);
+      this.finalSteer = new FinalSteerController(steeringCfg.final, this.params.steering);
+    }
+
+    const aeroCfg = await this.configManager.loadAeroConfig().catch(() => ({ drag_coefficient: 0, downforce_coefficient: 0 }));
+    const rollingCfg = await this.configManager.loadRollingResistanceConfig().catch(() => ({ c_rr: 0 }));
+    const brakeCfg = await this.configManager.loadBrakeConfig().catch(() => ({ max_force: 0, max_regen_force: 0, min_regen_speed: 0 }));
+    const powertrainCfg = await this.configManager.loadPowertrainConfig().catch(() => ({
+      max_drive_torque: 0,
+      max_regen_torque: 0,
+      max_power: 0,
+      drive_efficiency: 1,
+      regen_efficiency: 0,
+      min_soc: 0,
+      max_soc: 1,
+      initial_soc: 0.5,
+      battery_capacity_kwh: 1,
+    }));
+    const accelCfg = await this.configManager.loadFinalAccelControllerConfig().catch(() => ({
+      tau_throttle: 0.1,
+      tau_brake: 0.1,
+      accel_min: -5,
+      accel_max: 5,
+      stop_speed_epsilon: 0.05,
+    }));
+    this.accelController = new FinalAccelController(
+      this.params.m,
+      this.params.R_w,
+      powertrainCfg as any,
+      aeroCfg as any,
+      rollingCfg as any,
+      brakeCfg as any,
+      accelCfg as any
+    );
+  }
+
+  private directAccelerationFromTorque(axleTorques: number[]): number {
+    if (!this.params) {
+      return (axleTorques ?? []).reduce((sum, torque) => sum + torque, 0);
+    }
+    const frontSplit = Math.min(Math.max(this.params.T_se, 0), 1);
+    const drivenAxles = [];
+    if (frontSplit > 0) drivenAxles.push('front');
+    if (1 - frontSplit > 0) drivenAxles.push('rear');
+    if (drivenAxles.length === 0) {
+      throw new Error('No driven axles configured for direct torque control');
+    }
+    if (axleTorques.length !== drivenAxles.length) {
+      throw new Error(`Expected ${drivenAxles.length} driven axle torques, got ${axleTorques.length}`);
+    }
+    if (!(this.params.m > 0)) {
+      throw new Error('Vehicle mass must be positive for torque conversion');
+    }
+    if (!(this.params.R_w > 0)) {
+      throw new Error('Wheel radius must be positive for torque conversion');
+    }
+    const totalTorque = axleTorques.reduce((sum, torque) => sum + torque, 0);
+    return totalTorque / (this.params.m * this.params.R_w);
   }
 
   private async performReset(params: ResetParams = {}): Promise<void> {
@@ -418,6 +551,7 @@ export class SimulationDaemon {
     if (params.drift_enabled !== undefined) {
       this.driftEnabled = params.drift_enabled;
     }
+    this.params = await this.configManager.loadVehicleParameters(this.vehicleId).catch(() => this.params);
     if (!this.init.backend && ((params.model && params.model !== originalModel) || (params.vehicle_id && params.vehicle_id !== originalVehicle))) {
       this.backend = new HybridSimulationBackend({
         model: this.model,
@@ -427,6 +561,7 @@ export class SimulationDaemon {
         driftEnabled: this.driftEnabled,
       });
     }
+    await this.rebuildControllers();
     const timingInfo = this.init.timing ?? await this.configManager.loadModelTiming(this.model).catch(() => kDefaultTimings[this.model]);
     this.timing = new ModelTiming(timingInfo);
     const schedule = this.timing.planSteps(params.dt ?? timingInfo.nominal_dt);

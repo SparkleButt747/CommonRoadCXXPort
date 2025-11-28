@@ -1,6 +1,7 @@
 import { MBSimulationBackend, STSimulationBackend, STDSimulationBackend } from './vehicleBackends.js';
 import type { NativeDaemonFactory, NativeDaemonHandle } from './backend.js';
 import { ModelType } from './types.js';
+import { VehicleParameters } from '../models/types.js';
 
 class TypeScriptNativeDaemon implements NativeDaemonHandle {
   constructor(
@@ -66,7 +67,7 @@ export const packagedNativeFactory: NativeDaemonFactory = async ({
 
   const backend = createModelBackend({
     model,
-    params: vehicleParameters ?? {},
+    params: (vehicleParameters as VehicleParameters) ?? ({} as VehicleParameters),
     lowSpeed: safetyConfig as any,
     lossConfig: lossConfig as any,
     driftEnabled,
@@ -77,7 +78,7 @@ export const packagedNativeFactory: NativeDaemonFactory = async ({
 
 function createModelBackend(options: {
   model: ModelType;
-  params: Record<string, unknown>;
+  params: VehicleParameters;
   lowSpeed: Record<string, unknown>;
   lossConfig: Record<string, unknown>;
   driftEnabled: boolean;
